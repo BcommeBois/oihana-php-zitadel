@@ -1,0 +1,83 @@
+{
+    "name" : "oihana/php-zitadel" ,
+    "type" : "library" ,
+    "description" : "Composable PHP toolkit for the Zitadel identity provider. Bundles an OIDC/OAuth2 API client, JWT/JWKS verification, session lifecycle helpers backed by ArangoDB, OAuth client metadata resolution, V2 Action webhook catalog and descriptor, and Symfony Console commands." ,
+    "keywords" : [
+        "php" ,
+        "zitadel" ,
+        "oidc" ,
+        "oauth2" ,
+        "jwt" ,
+        "jwks" ,
+        "identity-provider" ,
+        "idp" ,
+        "sessions" ,
+        "webhooks" ,
+        "casbin"
+    ] ,
+    "homepage" : "https://github.com/BcommeBois/oihana-php-zitadel" ,
+    "license" : "MPL-2.0" ,
+    "authors" : [
+        {
+            "name"     : "Marc Alcaraz" ,
+            "email"    : "marc@ooop.fr" ,
+            "homepage" : "https://www.ooop.fr" ,
+            "role"     : "Project Founder, Lead Developer."
+        }
+    ] ,
+    "support" : {
+        "email"  : "marc@ooop.fr" ,
+        "issues" : "https://github.com/BcommeBois/oihana-php-zitadel/issues" ,
+        "source" : "https://github.com/BcommeBois/oihana-php-zitadel"
+    } ,
+    "scripts" : {
+        "doc"  : "rm -rf docs && mkdir docs && cp -r assets docs/assets && ./vendor/bin/phpdoc -c phpdoc.xml -v" ,
+        "test" : "./vendor/bin/phpunit"
+    } ,
+    "autoload" : {
+        "psr-4" : {
+            "oihana\\zitadel\\" : "src/oihana/zitadel"
+        } ,
+        "files" : [
+            "src/oihana/zitadel/helpers/getZitadelClient.php"
+        ]
+    } ,
+    "autoload-dev" : {
+        "psr-4" : {
+            "tests\\oihana\\zitadel\\" : "tests/oihana/zitadel"
+        }
+    } ,
+    "require" : {
+        "php"                       : ">=8.4" ,
+        "firebase/php-jwt"          : "^7.0" ,
+        "guzzlehttp/guzzle"         : "^7.10" ,
+        "php-di/php-di"             : "^7.0" ,
+        "psr/container"             : "^2.0" ,
+        "psr/http-message"          : "^2.0" ,
+        "psr/log"                   : "^3.0" ,
+        "symfony/console"           : "^7.0 || ^8.0" ,
+        "oihana/php-arango"         : "dev-main" ,
+        "oihana/php-auth"           : "dev-main" ,
+        "oihana/php-commands"       : "dev-main" ,
+        "oihana/php-core"           : "dev-main" ,
+        "oihana/php-enums"          : "dev-main" ,
+        "oihana/php-files"          : "dev-main" ,
+        "oihana/php-http"           : "dev-main" ,
+        "oihana/php-reflect"        : "dev-main" ,
+        "oihana/php-schema"         : "dev-main" ,
+        "oihana/php-system"         : "dev-main"
+    } ,
+    "require-dev" : {
+        "phpunit/phpunit"        : "^12" ,
+        "nunomaduro/collision"   : "^8.8" ,
+        "phpdocumentor/shim"     : "^3.8" ,
+        "slim/psr7"              : "^1.7"
+    } ,
+    "minimum-stability" : "dev" ,
+    "prefer-stable" : true ,
+    "config" : {
+        "allow-plugins" : {
+            "phpdocumentor/shim" : true
+        }
+    }
+}
