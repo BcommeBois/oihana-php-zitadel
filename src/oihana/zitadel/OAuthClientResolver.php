@@ -56,7 +56,8 @@ class OAuthClientResolver
      *
      * Long enough to amortize Arango hits over a request storm, short enough
      * that a freshly added Zitadel application is picked up within 10 minutes
-     * even without calling `command:auth:zitadel:sync:oauth-clients`.
+     * even without a periodic re-sync command running on the consuming
+     * application side.
      */
     public const int DEFAULT_CACHE_TTL = 600 ;
 

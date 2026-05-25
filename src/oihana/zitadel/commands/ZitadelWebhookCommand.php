@@ -102,8 +102,7 @@ class ZitadelWebhookCommand extends Kernel
 
     /**
      * Every action this command exposes, alphabetical (matches the help
-     * order printed by Symfony Console and `bun auth:zitadel:webhook
-     * --help`).
+     * order printed by Symfony Console `--help`).
      */
     public const array ACTIONS_ALL =
     [
@@ -468,8 +467,8 @@ class ZitadelWebhookCommand extends Kernel
             $io->error
             (
                 'A Target named "' . $canonical . '" already exists (id: ' . $existing[ 'id' ] . ').' .
-                "\nRun `bun auth:zitadel:webhook rotate $descriptor->key` to refresh the secret in place," .
-                "\nor `bun auth:zitadel:webhook uninstall $descriptor->key` to remove it first."
+                "\nRun the `rotate $descriptor->key` action to refresh the secret in place," .
+                "\nor the `uninstall $descriptor->key` action to remove it first."
             ) ;
             return ExitCode::FAILURE ;
         }
@@ -586,7 +585,7 @@ class ZitadelWebhookCommand extends Kernel
             $io->error
             (
                 'No Target named "' . $canonical . '" on this instance.' .
-                "\nRun `bun auth:zitadel:webhook install $descriptor->key` first."
+                "\nRun the `install $descriptor->key` action first."
             ) ;
             return ExitCode::FAILURE ;
         }
