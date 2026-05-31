@@ -30,8 +30,9 @@ class SessionCreatorFixture
 {
     use SessionCreatorTrait
     {
-        createSession as public ;
-        isSidRevoked  as public ;
+        createSession                as public ;
+        extractClaimsFromAccessToken as public ;
+        isSidRevoked                 as public ;
     }
 
     public ?Documents            $sessionsModel       = null ;
@@ -97,6 +98,49 @@ class SessionCreatorTraitTest extends TestCase
         $payload = rtrim( strtr( base64_encode( json_encode( $claims ) ) , '+/' , '-_' ) , '=' ) ;
 
         return "header.$payload.signature" ;
+    }
+
+    // =========================================================================
+    // extractClaimsFromAccessToken
+    // =========================================================================
+
+    public function testExtractClaimsFromValidJwt() :void
+    {
+        $fixture = $this->createFixture() ;
+        $token   = $this->buildJwt( [ 'sub' => 'user-1' , 'sid' => 'session-abc' ] ) ;
+
+        $claims = $fixture->extractClaimsFromAccessToken( $token ) ;
+
+        $this->assertIsArray( $claims ) ;
+        $this->assertSame( 'user-1'      , $claims[ 'sub' ] ) ;
+        $this->assertSame( 'session-abc' , $claims[ 'sid' ] ) ;
+    }
+
+    public function testExtractClaimsReturnsNullWhenNotThreeSegments() :void
+    {
+        $fixture = $this->createFixture() ;
+
+        $this->assertNull( $fixture->extractClaimsFromAccessToken( 'only.two'   ) ) ;
+        $this->assertNull( $fixture->extractClaimsFromAccessToken( 'no-dots-at-all' ) ) ;
+    }
+
+    public function testExtractClaimsReturnsNullOnMalformedBase64UrlPayload() :void
+    {
+        // The middle segment carries a '+' — outside the base64url alphabet —
+        // so base64UrlDecode() returns false and the claims cannot be parsed.
+        $fixture = $this->createFixture() ;
+
+        $this->assertNull( $fixture->extractClaimsFromAccessToken( 'header.aGVsbG8+.signature' ) ) ;
+    }
+
+    public function testExtractClaimsReturnsNullWhenPayloadIsNotAJsonObject() :void
+    {
+        // A valid base64url payload that decodes to a JSON scalar (here `123`)
+        // is not an associative array of claims — the helper rejects it.
+        $fixture = $this->createFixture() ;
+        $payload = rtrim( strtr( base64_encode( '123' ) , '+/' , '-_' ) , '=' ) ;
+
+        $this->assertNull( $fixture->extractClaimsFromAccessToken( "header.$payload.signature" ) ) ;
     }
 
     // =========================================================================

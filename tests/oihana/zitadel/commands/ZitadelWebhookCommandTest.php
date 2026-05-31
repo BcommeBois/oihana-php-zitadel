@@ -2,10 +2,18 @@
 
 namespace tests\oihana\zitadel\commands;
 
+use ReflectionClass;
+
+use oihana\enums\http\HttpStatusCode;
 use oihana\zitadel\commands\ZitadelWebhookCommand;
+use oihana\zitadel\enums\ZitadelOutput;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
+use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
  * Unit coverage for the pure helpers exposed by
@@ -230,8 +238,143 @@ TOML ;
     }
 
     // =========================================================================
+    // isPermissionDenied
+    // =========================================================================
+
+    public function testIsPermissionDeniedTrueOnForbidden() :void
+    {
+        $this->assertTrue( ZitadelWebhookCommand::isPermissionDenied
+        (
+            [ ZitadelOutput::STATUS => HttpStatusCode::FORBIDDEN ]
+        )) ;
+    }
+
+    public function testIsPermissionDeniedFalseOnOtherStatuses() :void
+    {
+        // A valid token rejected (401) is a token problem, not a missing role.
+        $this->assertFalse( ZitadelWebhookCommand::isPermissionDenied( [ ZitadelOutput::STATUS => HttpStatusCode::OK                    ] ) ) ;
+        $this->assertFalse( ZitadelWebhookCommand::isPermissionDenied( [ ZitadelOutput::STATUS => HttpStatusCode::UNAUTHORIZED          ] ) ) ;
+        $this->assertFalse( ZitadelWebhookCommand::isPermissionDenied( [ ZitadelOutput::STATUS => HttpStatusCode::INTERNAL_SERVER_ERROR ] ) ) ;
+    }
+
+    public function testIsPermissionDeniedFalseWhenStatusMissingOrZero() :void
+    {
+        // Transport failure / missing token → status 0 (or absent) → not a permission problem.
+        $this->assertFalse( ZitadelWebhookCommand::isPermissionDenied( []                              ) ) ;
+        $this->assertFalse( ZitadelWebhookCommand::isPermissionDenied( [ ZitadelOutput::STATUS => 0 ] ) ) ;
+    }
+
+    // =========================================================================
+    // hintMissingPermission / hintRevokeElevatedRole
+    // =========================================================================
+
+    public function testHintMissingPermissionWarnsOnForbidden() :void
+    {
+        $output = $this->captureHint( 'hintMissingPermission' , [ ZitadelOutput::STATUS => HttpStatusCode::FORBIDDEN ] ) ;
+
+        $this->assertStringContainsString( '403'       , $output ) ;
+        $this->assertStringContainsString( 'IAM Owner' , $output ) ;
+    }
+
+    public function testHintMissingPermissionSilentOnSuccess() :void
+    {
+        $output = $this->captureHint( 'hintMissingPermission' , [ ZitadelOutput::STATUS => HttpStatusCode::OK ] ) ;
+
+        $this->assertSame( '' , trim( $output ) ) ;
+    }
+
+    public function testHintMissingPermissionSilentOnNonForbiddenError() :void
+    {
+        $output = $this->captureHint( 'hintMissingPermission' , [ ZitadelOutput::STATUS => HttpStatusCode::INTERNAL_SERVER_ERROR ] ) ;
+
+        $this->assertSame( '' , trim( $output ) ) ;
+    }
+
+    public function testHintRevokeElevatedRoleAlwaysReminds() :void
+    {
+        $output = $this->captureHint( 'hintRevokeElevatedRole' ) ;
+
+        $this->assertStringContainsString( 'Least privilege' , $output ) ;
+        $this->assertStringContainsString( 'revoke'          , $output ) ;
+    }
+
+    // =========================================================================
+    // findTargetByName
+    // =========================================================================
+
+    public function testFindTargetByNameReturnsMatch() :void
+    {
+        $targets =
+        [
+            [ 'id' => 'a' , 'name' => 'my-api - webhook password - host' , 'endpoint' => 'https://x' , 'creationDate' => '' ] ,
+            [ 'id' => 'b' , 'name' => 'other'                            , 'endpoint' => 'https://y' , 'creationDate' => '' ] ,
+        ] ;
+
+        $found = $this->invokeFindTargetByName( $targets , 'my-api - webhook password - host' ) ;
+
+        $this->assertNotNull( $found ) ;
+        $this->assertSame( 'a' , $found[ 'id' ] ) ;
+    }
+
+    public function testFindTargetByNameReturnsNullWhenNoMatch() :void
+    {
+        $targets = [ [ 'id' => 'a' , 'name' => 'other' , 'endpoint' => '' , 'creationDate' => '' ] ] ;
+
+        $this->assertNull( $this->invokeFindTargetByName( $targets , 'absent' ) ) ;
+    }
+
+    public function testFindTargetByNameReturnsNullOnEmptyList() :void
+    {
+        $this->assertNull( $this->invokeFindTargetByName( [] , 'anything' ) ) ;
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
+
+    /**
+     * Invokes the private pure-search helper {@see ZitadelWebhookCommand::findTargetByName()}
+     * on a construction-free instance and returns its result.
+     *
+     * @param list<array{ id: string , name: string , endpoint: string , creationDate: string }> $targets
+     * @param string                                                                              $name
+     *
+     * @return array{ id: string , name: string , endpoint: string , creationDate: string }|null
+     */
+    private function invokeFindTargetByName( array $targets , string $name ) :?array
+    {
+        $class     = new ReflectionClass( ZitadelWebhookCommand::class ) ;
+        $command   = $class->newInstanceWithoutConstructor() ;
+        $reflected = $class->getMethod( 'findTargetByName' ) ;
+
+        return $reflected->invoke( $command , $targets , $name ) ;
+    }
+
+    /**
+     * Invokes a private console-writing helper on a construction-free
+     * instance and returns the captured output. These helpers only read
+     * their arguments (never `$this` state), so the DI-heavy constructor
+     * is skipped via {@see ReflectionClass::newInstanceWithoutConstructor()}.
+     *
+     * @param string     $method The private method name to invoke.
+     * @param array|null $result Optional structured result passed as the
+     *                           second argument when the method expects one.
+     */
+    private function captureHint( string $method , ?array $result = null ) :string
+    {
+        $buffer = new BufferedOutput() ;
+        $io     = new SymfonyStyle( new ArrayInput( [] ) , $buffer ) ;
+
+        $class     = new ReflectionClass( ZitadelWebhookCommand::class ) ;
+        $command   = $class->newInstanceWithoutConstructor() ;
+        $reflected = $class->getMethod( $method ) ;
+
+        $arguments = $result === null ? [ $io ] : [ $io , $result ] ;
+
+        $reflected->invokeArgs( $command , $arguments ) ;
+
+        return $buffer->fetch() ;
+    }
 
     private function fixtureToml( string $secret ) :string
     {

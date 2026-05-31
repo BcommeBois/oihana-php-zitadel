@@ -8,6 +8,8 @@ use DI\NotFoundException;
 
 use oihana\commands\enums\ExitCode;
 use oihana\commands\Kernel;
+use oihana\enums\http\HttpStatusCode;
+use oihana\zitadel\enums\ZitadelOutput;
 use oihana\zitadel\traits\ZitadelClientTrait;
 use oihana\zitadel\webhooks\ZitadelWebhookCatalog;
 use oihana\zitadel\webhooks\ZitadelWebhookDescriptor;
@@ -287,7 +289,7 @@ class ZitadelWebhookCommand extends Kernel
      */
     public static function replaceSecretInToml( string $toml , string $key , string $secret ) :string
     {
-        $sectionPattern = '/^\[zitadel\.webhooks\.' . preg_quote( $key , '/' ) . '\][^\[]*?(?=^\[|\z)/ms' ;
+        $sectionPattern = '/^\[zitadel\.webhooks\.' . preg_quote( $key , '/' ) . '][^\[]*?(?=^\[|\z)/ms' ;
         $secretPattern  = '/^secret\s*=\s*"[^"]*"/m' ;
         $newSecretLine  = 'secret = "' . $secret . '"' ;
 
@@ -378,6 +380,67 @@ class ZitadelWebhookCommand extends Kernel
     // -------------------------------------------------------------------------
 
     /**
+     * When a management call failed for lack of permission, prints a concrete remediation hint.
+     * Managing Actions and Targets is an instance-level capability, so the service account
+     * must hold a manager role that grants it (typically *IAM Owner* on the instance). No-op for any other failure.
+     *
+     * @param SymfonyStyle $io     The console style.
+     * @param array        $result A structured result from {@see ZitadelClientTrait::requestRaw()}.
+     */
+    private function hintMissingPermission( SymfonyStyle $io , array $result ) :void
+    {
+        if( !self::isPermissionDenied( $result ) )
+        {
+            return ;
+        }
+
+        $io->warning
+        ([
+            'Zitadel refused the call (HTTP 403). The service account is authenticated' ,
+            'but lacks the rights to manage Actions and Targets — an instance-level' ,
+            'capability that requires a manager role such as IAM Owner on the instance.' ,
+            '' ,
+            'Grant it in the Zitadel console, then run this command again:' ,
+            '  Users → <service account> → Administrator roles → add the role.' ,
+        ]) ;
+    }
+
+    /**
+     * Least-privilege reminder, printed after a Target was successfully
+     * provisioned. The elevated, instance-level role the service account
+     * needed for this operation is NOT required for normal API traffic, so
+     * the operator can revoke it again once the provisioning is done.
+     *
+     * @param SymfonyStyle $io The console style.
+     */
+    private function hintRevokeElevatedRole( SymfonyStyle $io ) :void
+    {
+        $io->warning
+        ([
+            'Least privilege: the instance-level role the service account needed here' ,
+            'is NOT required for day-to-day API traffic. If you granted it just for' ,
+            'this command, you can revoke it now:' ,
+            '  Users → <service account> → Administrator roles → remove the role.' ,
+        ]) ;
+    }
+
+    /**
+     * Tells whether a structured client result denotes a missing-permission outcome —
+     * the service account authenticated correctly (it obtained a token) but Zitadel refused the call
+     * because the account lacks the manager role required to manage Actions and Targets.
+     *
+     * @param array $result A structured result from {@see ZitadelClientTrait::requestRaw()}.
+     *
+     * @return bool `true` when Zitadel answered HTTP 403 (Forbidden), `false` otherwise —
+     *              including transport failures and missing-token outcomes (status `0`),
+     *              which are not permission problems.
+     */
+    public static function isPermissionDenied( array $result ) :bool
+    {
+        return ( int ) ( $result[ ZitadelOutput::STATUS ] ?? 0 ) === HttpStatusCode::FORBIDDEN ;
+    }
+
+    /**
      * `delete` (no key) — interactive picker over every Target on the
      * instance, used as a rescue / housekeeping path (e.g. removing a
      * legacy Cible whose name does not follow the canonical convention).
@@ -418,9 +481,10 @@ class ZitadelWebhookCommand extends Kernel
 
         $result = $this->zitadelClient->deleteTarget( $picked[ 'id' ] ) ;
 
-        if( !( $result[ 'success' ] ?? false ) )
+        if( !( $result[ ZitadelOutput::SUCCESS ] ?? false ) )
         {
             $io->error( 'Delete failed: ' . $this->describeFailure( $result ) ) ;
+            $this->hintMissingPermission( $io , $result ) ;
             return ExitCode::FAILURE ;
         }
 
@@ -460,7 +524,14 @@ class ZitadelWebhookCommand extends Kernel
         $io->writeln( "  <comment>Event:</comment>    $descriptor->event" ) ;
         $io->writeln( "  <comment>Name:</comment>     $canonical" ) ;
 
-        $existing = $this->findTargetByName( $canonical ) ;
+        $targets = $this->loadTargets( $io ) ;
+
+        if( $targets === null )
+        {
+            return ExitCode::FAILURE ;
+        }
+
+        $existing = $this->findTargetByName( $targets , $canonical ) ;
 
         if( $existing !== null )
         {
@@ -494,6 +565,8 @@ class ZitadelWebhookCommand extends Kernel
 
         $this->bindOrWarn( $io , $descriptor->event , $targetId ) ;
         $this->writeSecretOrWarn( $io , $descriptor->key , $signingKey ) ;
+
+        $this->hintRevokeElevatedRole( $io ) ;
 
         return ExitCode::SUCCESS ;
     }
@@ -578,7 +651,15 @@ class ZitadelWebhookCommand extends Kernel
         }
 
         $canonical = self::buildCanonicalName( $this->apiIdentifier , $descriptor->label , $this->baseUrl ) ;
-        $existing  = $this->findTargetByName( $canonical ) ;
+
+        $targets = $this->loadTargets( $io ) ;
+
+        if( $targets === null )
+        {
+            return ExitCode::FAILURE ;
+        }
+
+        $existing = $this->findTargetByName( $targets , $canonical ) ;
 
         if( $existing === null )
         {
@@ -611,6 +692,8 @@ class ZitadelWebhookCommand extends Kernel
 
         $this->bindOrWarn( $io , $descriptor->event , $targetId ) ;
         $this->writeSecretOrWarn( $io , $descriptor->key , $signingKey ) ;
+
+        $this->hintRevokeElevatedRole( $io ) ;
 
         return ExitCode::SUCCESS ;
     }
@@ -645,7 +728,14 @@ class ZitadelWebhookCommand extends Kernel
         $io->writeln( '' ) ;
         $io->writeln( '  <comment>Secret in config:</comment> ' . ( $descriptor->hasSecret() ? '<info>set</info>' : '<comment>blank</comment>' ) ) ;
 
-        $existing = $this->findTargetByName( $canonical ) ;
+        $targets = $this->loadTargets( $io ) ;
+
+        if( $targets === null )
+        {
+            return ExitCode::FAILURE ;
+        }
+
+        $existing = $this->findTargetByName( $targets , $canonical ) ;
 
         if( $existing === null )
         {
@@ -685,10 +775,18 @@ class ZitadelWebhookCommand extends Kernel
         }
 
         $canonical = self::buildCanonicalName( $this->apiIdentifier , $descriptor->label , $this->baseUrl ) ;
-        $existing  = $this->findTargetByName( $canonical ) ;
 
         $io->writeln( "  <comment>Key:</comment>  $descriptor->key" ) ;
         $io->writeln( "  <comment>Name:</comment> $canonical" ) ;
+
+        $targets = $this->loadTargets( $io ) ;
+
+        if( $targets === null )
+        {
+            return ExitCode::FAILURE ;
+        }
+
+        $existing = $this->findTargetByName( $targets , $canonical ) ;
 
         if( $existing !== null )
         {
@@ -703,9 +801,10 @@ class ZitadelWebhookCommand extends Kernel
 
             $result = $this->zitadelClient->deleteTarget( $existing[ 'id' ] ) ;
 
-            if( !( $result[ 'success' ] ?? false ) )
+            if( !( $result[ ZitadelOutput::SUCCESS ] ?? false ) )
             {
                 $io->error( 'Delete failed: ' . $this->describeFailure( $result ) ) ;
+                $this->hintMissingPermission( $io , $result ) ;
                 return ExitCode::FAILURE ;
             }
 
@@ -758,10 +857,11 @@ class ZitadelWebhookCommand extends Kernel
     {
         $result = $this->zitadelClient->setEventExecution( $event , $targetId ) ;
 
-        if( !( $result[ 'success' ] ?? false ) )
+        if( !( $result[ ZitadelOutput::SUCCESS ] ?? false ) )
         {
             $io->warning( 'Execution binding failed: ' . $this->describeFailure( $result ) ) ;
             $io->writeln( "  → fix manually in console (event $event → Target $targetId)" ) ;
+            $this->hintMissingPermission( $io , $result ) ;
         }
         else
         {
@@ -776,19 +876,21 @@ class ZitadelWebhookCommand extends Kernel
     {
         $result = $this->zitadelClient->createTarget( $name , $endpoint ) ;
 
-        if( !( $result[ 'success' ] ?? false ) )
+        if( !( $result[ ZitadelOutput::SUCCESS ] ?? false ) )
         {
             $io->error( 'Cible creation failed: ' . $this->describeFailure( $result ) ) ;
+            $this->hintMissingPermission( $io , $result ) ;
             return null ;
         }
 
-        $body       = $result[ 'body' ] ?? null ;
+        $body = $result[ ZitadelOutput::BODY ] ?? null ;
+
         $targetId   = is_object( $body ) ? ( $body->id         ?? null ) : null ;
         $signingKey = is_object( $body ) ? ( $body->signingKey ?? null ) : null ;
 
         if( !is_string( $targetId ) || $targetId === '' )
         {
-            $io->error( 'Cible created but Zitadel did not return an id (raw body: ' . ( $result[ 'rawBody' ] ?? '' ) . ')' ) ;
+            $io->error( 'Cible created but Zitadel did not return an id (raw body: ' . ( $result[ ZitadelOutput::RAW_BODY ] ?? '' ) . ')' ) ;
             return null ;
         }
 
@@ -799,9 +901,9 @@ class ZitadelWebhookCommand extends Kernel
 
     private function describeFailure( array $result ) :string
     {
-        $status = ( int    ) ( $result[ 'status'  ] ?? 0  ) ;
-        $error  = ( string ) ( $result[ 'error'   ] ?? '' ) ;
-        $body   = ( string ) ( $result[ 'rawBody' ] ?? '' ) ;
+        $status = ( int    ) ( $result[ ZitadelOutput::STATUS   ] ?? 0  ) ;
+        $error  = ( string ) ( $result[ ZitadelOutput::ERROR    ] ?? '' ) ;
+        $body   = ( string ) ( $result[ ZitadelOutput::RAW_BODY ] ?? '' ) ;
 
         return $status > 0 ? "HTTP $status — $body" : "transport: $error" ;
     }
@@ -839,25 +941,25 @@ class ZitadelWebhookCommand extends Kernel
     }
 
     /**
-     * @return array{ id: string , name: string , endpoint: string , creationDate: string }|null
+     * Searches a pre-loaded, normalised Target list for an exact name match.
+     *
+     * Pure lookup over the result of {@see loadTargets()} — kept separate from
+     * the listing call so the API request (and its permission-error handling)
+     * happens once in the caller, and a genuine "not found" is never confused
+     * with a listing failure such as HTTP 403.
+     *
+     * @param list<array{ id: string , name: string , endpoint: string , creationDate: string }> $targets Normalised Targets.
+     * @param string                                                                              $name    The canonical name to match.
+     *
+     * @return array{ id: string , name: string , endpoint: string , creationDate: string }|null The matching Target, or null when none matches.
      */
-    private function findTargetByName( string $name ) :?array
+    private function findTargetByName( array $targets , string $name ) :?array
     {
-        $list = $this->zitadelClient->listTargets() ;
-
-        if( !( $list[ 'success' ] ?? false ) )
-        {
-            return null ;
-        }
-
-        $body    = $list[ 'body' ] ?? null ;
-        $targets = is_object( $body ) && isset( $body->targets ) && is_array( $body->targets ) ? $body->targets : [] ;
-
         foreach( $targets as $target )
         {
-            if( is_object( $target ) && ( $target->name ?? null ) === $name )
+            if( ( $target[ 'name' ] ?? null ) === $name )
             {
-                return $this->normaliseTarget( $target ) ;
+                return $target ;
             }
         }
 
@@ -891,13 +993,14 @@ class ZitadelWebhookCommand extends Kernel
     {
         $list = $this->zitadelClient->listTargets() ;
 
-        if( !( $list[ 'success' ] ?? false ) )
+        if( !( $list[ ZitadelOutput::SUCCESS ] ?? false ) )
         {
             $io->error( 'Listing failed: ' . $this->describeFailure( $list ) ) ;
+            $this->hintMissingPermission( $io , $list ) ;
             return null ;
         }
 
-        $body = $list[ 'body' ] ?? null ;
+        $body = $list[ ZitadelOutput::BODY ] ?? null ;
         $raw  = is_object( $body ) && isset( $body->targets ) && is_array( $body->targets ) ? $body->targets : [] ;
 
         $targets = [] ;

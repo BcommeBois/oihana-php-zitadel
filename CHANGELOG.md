@@ -23,3 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `webhooks/` (2 files): `ZitadelWebhookCatalog`, `ZitadelWebhookDescriptor`.
 - Test suite under `tests/oihana/zitadel/` (8 PHP files): `OAuthClientResolverTest`, `commands/ZitadelWebhookCommandTest`, `enums/ZitadelErrorIdTest`, `traits/SessionCreatorTraitTest`, `traits/client/ZitadelClientServiceTraitTest`, `traits/client/ZitadelClientUserTraitTest`, `webhooks/ZitadelWebhookCatalogTest`, `webhooks/ZitadelWebhookDescriptorTest`. Unit-only — no live Zitadel instance required.
 - Bilingual user guides under `wiki/{fr,en}/`: README index + webhooks page (existing). Further pages (getting-started, OIDC flow, sessions) to be added in subsequent commits.
+- `ZitadelWebhookCommand` — permission-aware feedback: when a management call is refused with HTTP 403, the command prints an actionable remediation hint (grant the service account a manager role allowed to manage Actions/Targets — an instance-level capability, typically *IAM Owner*). Wired on Target creation, Execution binding, Target listing and Target deletion.
+- `ZitadelWebhookCommand` — least-privilege reminder printed after a successful `install` / `rotate`, inviting the operator to revoke the elevated, instance-level role that day-to-day API traffic does not need.
+- `ZitadelWebhookCommand::isPermissionDenied()` — public static predicate that detects an HTTP 403 (Forbidden) outcome in a structured client result.
+
+### Changed
+
+- `ZitadelWebhookCommand::findTargetByName()` is now a pure search over a pre-loaded Target list (`(array $targets, string $name)`); callers fetch the instance Targets through `loadTargets()` first. A listing failure (e.g. HTTP 403) now surfaces the permission hint and aborts, instead of being silently treated as "Target not found" — fixing the misleading "run install first" message on `rotate` when the service account lacks rights. Removes the duplicated listing path.
+- `SessionCreatorTrait::extractClaimsFromAccessToken()` decodes the JWT payload through `oihana\core\encoding\base64UrlDecode()` (strict base64url alphabet validation) and returns `null` when decoding fails, rather than passing non-validated bytes to `json_decode()`.
+- `ZitadelWebhookCommand` housekeeping: removed an unused import and migrated structured-result key access to `ZitadelOutput::*` constants.
+
+### Tests
+
+- `ZitadelWebhookCommandTest` — added coverage for `isPermissionDenied()`, the permission and least-privilege hints, and the pure `findTargetByName()` lookup.
+- `SessionCreatorTraitTest` — added coverage for `extractClaimsFromAccessToken()` (valid JWT, wrong segment count, malformed base64url payload, non-object payload).

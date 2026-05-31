@@ -24,6 +24,7 @@ use org\schema\constants\Schema;
 use org\iso\Iso8601Format;
 
 use function oihana\auth\jwt\helpers\extractSidFromClaims;
+use function oihana\core\encoding\base64UrlDecode;
 use function oihana\http\helpers\ips\getClientIp;
 use function oihana\arango\db\binds\aqlBind;
 use function oihana\arango\db\operators\equal;
@@ -250,7 +251,14 @@ trait SessionCreatorTrait
             return null ;
         }
 
-        $payload = json_decode( base64_decode( strtr( $parts[ 1 ] , '-_' , '+/' ) ) , true ) ;
+        $decoded = base64UrlDecode( $parts[ 1 ] ) ;
+
+        if( $decoded === false )
+        {
+            return null ;
+        }
+
+        $payload = json_decode( $decoded , true ) ;
 
         return is_array( $payload ) ? $payload : null ;
     }
