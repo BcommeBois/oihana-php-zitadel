@@ -72,9 +72,9 @@ The API-side processing (signature verification, idempotency, session revocation
 
 ## Webhooks supported by the API
 
-Each webhook = 1 Target + 1 Execution in Zitadel + 1 entry under `[zitadel.webhooks]` in your application's `config.toml`. Example of a single entry:
+Each webhook = 1 Target + 1 Execution in Zitadel + 1 entry under the `[zitadel.webhooks]` section of your configuration. Example of a single entry:
 
-| Zitadel event | Target (suggested) | `config.toml` key | API endpoint |
+| Zitadel event | Target (suggested) | `[zitadel.webhooks]` key | API endpoint |
 |---|---|---|---|
 | `user.human.password.changed` | `my-api password-changed` | `password_changed` | `POST /webhooks/zitadel/password-changed` |
 
@@ -129,17 +129,16 @@ You should see a JSON response from your API (not the default Valet page).
 ### 4. Provision Target + Action on the Zitadel side
 
 ```shell
-php bin/console zitadel:webhook install password_changed --endpoint https://random-words-1234.trycloudflare.com/webhooks/zitadel/password-changed --inject
+php bin/console zitadel:webhook install password_changed --endpoint https://random-words-1234.trycloudflare.com/webhooks/zitadel/password-changed
 ```
 
 This command:
 
 1. Creates the Target (the endpoint URL is your tunnel)
 2. Binds the Execution to the `user.human.password.changed` event
-3. Prints the signing key
-4. With `--inject`: also writes it into the host application's `config.toml` under `[zitadel.webhooks].password_changed` (with `.bak` backup)
+3. Automatically writes the signing key into the injected config file (`CONFIG_FILE` init key), under `[zitadel.webhooks.password_changed]`. A missing file is created, and an existing one is backed up to `<file>.bak` before the in-place rewrite. If no file is injected, the command prints the snippet for manual paste.
 
-Then reload your application's config so the controller picks up the new secret.
+Then rebuild your configuration so the change takes effect and the controller picks up the new secret.
 
 ### 5. End-to-end test
 
@@ -232,10 +231,10 @@ In staging and prod, the API is reachable directly via public DNS — **no cloud
 
    ```shell
    # Run this from your workstation, not the server (the command talks to Zitadel cloud, not the API)
-   php bin/console zitadel:webhook install password_changed --endpoint https://api.example.com/webhooks/zitadel/password-changed --inject
+   php bin/console zitadel:webhook install password_changed --endpoint https://api.example.com/webhooks/zitadel/password-changed
    ```
 
-5. **Deploy the new config to the server**: commit the updated `config.toml` (or if gitignored — pass the secret as an env var / vault), then reload the application config on the server.
+5. **Deploy the new config to the server**: commit the updated configuration file (or if gitignored — pass the secret as an env var / vault), then rebuild the configuration on the server.
 
 ### Option 2 — cloudflared tunnel from the staging server (private network fallback)
 
@@ -276,10 +275,10 @@ If your staging is in a network without public exposure:
 5. Provision on the Zitadel side with the tunnel URL:
 
    ```shell
-   php bin/console zitadel:webhook install password_changed --endpoint https://staging-zitadel.example.com/webhooks/zitadel/password-changed --inject --name "my-api password-changed (staging)"
+   php bin/console zitadel:webhook install password_changed --endpoint https://staging-zitadel.example.com/webhooks/zitadel/password-changed
    ```
 
-   Note: distinct `--name` so you don't overwrite the prod Target if both run on the same Zitadel instance.
+   Note: no risk of overwriting the prod Target if it shares the same Zitadel instance. The Target name is derived automatically as `{apiIdentifier} - {label} - {host}`; as long as each environment has its own `apiIdentifier` (first segment, read from `[auth.api].identifier`) and/or its own `baseUrl`, the names never collide.
 
 ## Network security and firewall
 
@@ -325,54 +324,59 @@ tail -f /var/log/nginx/myapp-webhook.log
 
 ## The `zitadel:webhook` command
 
-CLI command dedicated to Zitadel V2 Targets + Executions management. It uses the service-account already configured under `[zitadel]` in `config.toml` — no manual Bearer needed.
+CLI command dedicated to Zitadel V2 Targets + Executions management. It uses the service-account already configured under the `[zitadel]` section of your configuration — no manual Bearer needed.
+
+The command is catalog-driven: each webhook is described by a descriptor (key, event, route, label) in the `ZitadelWebhookCatalog`. Actions that target a specific webhook take a `<key>` matching the `[zitadel.webhooks.<key>]` section. The Target name on the Zitadel side is derived automatically as `{apiIdentifier} - {label} - {host}` — there is therefore no `--name` / `--event` option.
 
 ### Available actions
 
 ```shell
-php bin/console zitadel:webhook <action> [options]
+php bin/console zitadel:webhook <action> [<key>] [options]
 ```
 
-| Action | Description |
-|---|---|
-| `list` | Lists every Target on the instance with id / name / endpoint / creation date (sorted newest-first) |
-| `show` | Displays one Target's details (by `--name` or `--target-id`). Signing key not displayed (Zitadel does not re-expose it) |
-| `setup` (default action) | Creates the Target if missing + binds the Execution to the event. If the Target already exists: skips creation, just relinks Execution + warning |
-| `rotate` | Deletes the existing Target + recreates it (rotates the signing key). Prints the new key |
-| `delete` | Deletes a Target (by `--name`, `--target-id`, or interactively if nothing is supplied) |
+| Action              | Argument | Description                                                                                                                          |
+|---------------------|----------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `list` (default)    | —        | Lists every Target on the instance (id / name / endpoint / creation date, sorted newest-first). `--mine` filters on the API prefix   |
+| `install`           | `<key>`  | Creates the Target + binds the Execution to the event + **automatically writes** the secret to the config file                       |
+| `show`              | `<key>`  | Displays the descriptor + the matching Target's Zitadel-side metadata. Signing key not displayed (Zitadel does not re-expose it)     |
+| `rotate`            | `<key>`  | Deletes + recreates the Target (same endpoint) to obtain a fresh signing key, then **rewrites** the secret in the configuration      |
+| `uninstall`         | `<key>`  | Deletes the Target (with confirmation). `--purge-config` also blanks the secret in the configuration (event / label / route kept)    |
+| `delete`            | —        | Interactive picker over **every** Target on the instance (rescue / housekeeping, e.g. a legacy Target off the naming convention)     |
+
+`<key>` always matches the `[zitadel.webhooks.<key>]` section suffix (e.g. `password_changed`). The catalog rejects unknown keys, so the command never operates on a webhook the API does not know about.
 
 ### Options
 
-| Option | Default | When |
-|---|---|---|
-| `--endpoint <url>` | none | Required for `setup` (creation) and `rotate`. Optional for `setup` when the Target already exists |
-| `--name <name>` | `my-api password-changed` | Target name on the Zitadel side |
-| `--event <event>` | `user.human.password.changed` | Zitadel event to bind via Execution |
-| `--config-key <key>` | `password_changed` | TOML key under `[zitadel.webhooks]` to write with `--inject` |
-| `--inject` | (off) | Writes the new signing key directly into the root `config.toml` (with `.bak` backup). Reload the application config afterwards |
-| `--target-id <id>` | none | Override `--name` when the Zitadel id is already known |
+| Option            | Default | When                                                                                                                  |
+|-------------------|---------|---------------------------------------------------------------------------------------------------------------------|
+| `--endpoint <url>`| none    | Public HTTPS URL Zitadel POSTs to. Required on `install` when `baseUrl` is private (otherwise derived from `baseUrl + route`) |
+| `--mine`          | (off)   | On `list`, restrict the output to Targets owned by this API (name prefixed by `{apiIdentifier} - `)                   |
+| `--purge-config`  | (off)   | On `uninstall`, blank the secret in the configuration (the event / label / route section is preserved)                |
+| `--yes` / `-y`    | (off)   | Skip the interactive confirmation (for cron / scripted runs)                                                          |
+
+There is **no** secret-write flag: `install` and `rotate` write the secret automatically to the injected config file (`CONFIG_FILE` init key). A missing file is created, and an existing one is backed up to `<file>.bak` before the in-place rewrite. If no file is injected, the snippet is printed for manual paste.
 
 ### Common scenarios
 
 **Local setup from scratch**:
 ```shell
 php bin/console zitadel:webhook install password_changed \
-    --endpoint https://xxx.trycloudflare.com/webhooks/zitadel/password-changed \
-    --inject
+    --endpoint https://xxx.trycloudflare.com/webhooks/zitadel/password-changed
 ```
 
 **I lost the signing key (no longer have the printed snippet)**:
 ```shell
-php bin/console zitadel:webhook rotate password_changed --inject
+php bin/console zitadel:webhook rotate password_changed
 # The command reuses the current endpoint + generates + writes the new key
 ```
 
 **My cloudflared tunnel got a new URL**:
 ```shell
-php bin/console zitadel:webhook rotate password_changed \
-    --endpoint https://new-url.trycloudflare.com/webhooks/zitadel/password-changed \
-    --inject
-# Updates the endpoint + rotates the signing key + writes to config.toml
+# rotate reuses the Target's existing endpoint; to change the endpoint,
+# uninstall then install with the new URL
+php bin/console zitadel:webhook uninstall password_changed --yes
+php bin/console zitadel:webhook install password_changed \
+    --endpoint https://new-url.trycloudflare.com/webhooks/zitadel/password-changed
 ```
 
 **Cleanup time**:
@@ -389,7 +393,7 @@ To listen to another Zitadel event (e.g. `user.human.email.changed`), the host-s
 
 2. **Create the HTTP controller** on the host application side: a PSR-15 handler that reads the raw body before any parsing middleware, verifies the HMAC signature using the `signingKey` stored in config, decodes the JSON, applies the idempotency you want, and runs the business handling (session revocation, audit log, etc.).
 
-3. **Add the secret key under `[zitadel.webhooks]`** in your `config.toml`: `email_changed = ""`. The value will be filled by the `install` command (pass `--inject` to write it back automatically).
+3. **Add the secret key under `[zitadel.webhooks]`** in your configuration: `email_changed = ""`. The value is filled automatically by the `install` command.
 
 4. **Provision on the Zitadel side** with the command shipped by the library:
    ```shell
@@ -397,7 +401,7 @@ To listen to another Zitadel event (e.g. `user.human.email.changed`), the host-s
        --endpoint https://api.example.com/webhooks/zitadel/email-changed
    ```
 
-5. **Reload your application's config** so the controller picks up the new secret.
+5. **Rebuild your configuration** so the change takes effect and the controller picks up the new secret.
 
 6. **Update this guide**: add a row to the [Webhooks supported by the API](#webhooks-supported-by-the-api) table.
 
@@ -405,7 +409,7 @@ To listen to another Zitadel event (e.g. `user.human.email.changed`), the host-s
 
 ### `invalid CreateTargetRequest.Name` on creation
 
-→ Name is empty or too long (>1000 chars). Check `--name`.
+→ The derived name is empty or too long (>1000 chars). The name is built as `{apiIdentifier} - {label} - {host}`: check `[auth.api].identifier`, the descriptor `label`, and `[app].baseUrl` in your configuration.
 
 ### `Errors.Target.DeniedURL` on creation
 
@@ -418,18 +422,18 @@ Solutions: cloudflared tunnel (dev) or public DNS + cert (staging/prod).
 
 ### The webhook returns 401 on every call
 
-→ The signing key in `config.toml` does not match Zitadel's. Causes:
-- The application config was not reloaded after writing
-- The Target was rotated but `config.toml` was not updated
+→ The signing key in the configuration does not match Zitadel's. Causes:
+- The configuration was not rebuilt after writing
+- The Target was rotated but the configuration was not updated
 - Wrong Target name targeted (the Target referenced by the Action is not the one you have the key for)
 
-Solution: `php bin/console zitadel:webhook rotate password_changed --inject` puis recharger la config de l application.
+Solution: `php bin/console zitadel:webhook rotate password_changed`, then rebuild the configuration.
 
 ### Sessions are not revoked after a password change
 
 → Several possible causes:
 1. **Cloudflared down in local**: Zitadel POSTs into the void → check that cloudflared is running
-2. **Zitadel Action not created**: only a Target exists with no Execution binding it → `php bin/console zitadel:webhook install password_changed` (no `--endpoint` if the Target exists) re-binds the Execution
+2. **Zitadel Action not created**: only a Target exists with no Execution binding it → `php bin/console zitadel:webhook rotate password_changed` recreates the Target and re-binds the Execution (`install` refuses if the Target already exists)
 3. **Nginx returns 5xx**: check `/var/log/nginx/myapp-webhook.log` — Zitadel will retry several times before giving up
 
 Clean test:
@@ -441,4 +445,4 @@ This command simulates a locally-signed payload (no Zitadel involvement) to veri
 
 ### `transport: no_token` in the command
 
-→ The Zitadel service-account configured under `[zitadel]` in `config.toml` can no longer authenticate. Check the private key + the JWT expiration of the service account.
+→ The Zitadel service-account configured under the `[zitadel]` section of your configuration can no longer authenticate. Check the private key + the JWT expiration of the service account.

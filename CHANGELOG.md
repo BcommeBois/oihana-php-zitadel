@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `findRootConfigPath()` filesystem walk (and `CONFIG_LOOKUP_DEPTH`) and the
   project-specific `config.toml` / `bun refresh` wording from messages and
   docblocks — the command is now path-agnostic.
+- docs(`wiki/{fr,en}/webhooks.md`): synced the webhook guide with the
+  path-agnostic command. Dropped the stale `--inject` flag (the secret is
+  written automatically on `install` / `rotate`), rewrote the actions/options
+  tables to the real CLI surface (`--endpoint`, `--mine`, `--purge-config`,
+  `--yes`; positional `<key>`; default action `list`), and genericised the
+  project-specific wording (hard-coded `config.toml`, `bun refresh`) into
+  neutral "your configuration" / "rebuild your configuration" language.
 
 ### Added
 
