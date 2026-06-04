@@ -32,7 +32,7 @@ use function oihana\controllers\helpers\resolveDependency;
  * *Executions* (Actions ↔ Target bindings) the API consumes.
  *
  * The command works against the {@see ZitadelWebhookCatalog} built at
- * boot from the `[zitadel.webhooks.*]` sections of `config.toml`. Each
+ * boot from the `[zitadel.webhooks.*]` sections of the configuration. Each
  * subsection (e.g. `[zitadel.webhooks.password_changed]`) describes one
  * webhook with its event, label, route and HMAC secret. The CLI uses
  * the descriptor to derive a deterministic Cible name —
@@ -44,11 +44,11 @@ use function oihana\controllers\helpers\resolveDependency;
  * | action      | argument | what it does                                                                          |
  * | ----------- | -------- | ------------------------------------------------------------------------------------- |
  * | `delete`    | —        | Lists every Target on the instance + interactive selection (rescue / housekeeping)    |
- * | `install`   | <key>    | Creates the Cible + binds the Execution + writes the secret to config.toml            |
+ * | `install`   | <key>    | Creates the Cible + binds the Execution + writes the secret to the config file        |
  * | `list`      | —        | Lists every Target on the instance (or `--mine` to filter on the API prefix)          |
  * | `rotate`    | <key>    | Drops + recreates the Cible to obtain a fresh signing key, updates the secret         |
  * | `show`      | <key>    | Prints the descriptor + the matching Target's Zitadel-side metadata (id, dates, …)    |
- * | `uninstall` | <key>    | Removes the Cible (with confirmation), optionally purges the secret from config.toml  |
+ * | `uninstall` | <key>    | Removes the Cible (with confirmation), optionally purges the secret from the config file |
  *
  * `<key>` always matches the TOML section suffix
  * (`[zitadel.webhooks.<key>]`) — e.g. `password_changed`. The catalog
@@ -60,7 +60,7 @@ use function oihana\controllers\helpers\resolveDependency;
  * visible in the V2 API responses at creation. This command goes
  * through the V2 API (using the existing service-account configured
  * via {@see ZitadelClient}) so the key is always recoverable on
- * demand, and the project's `config.toml` stays in sync without manual
+ * demand, and the configured file stays in sync without manual
  * copy-paste.
  *
  * @package oihana\zitadel\commands
@@ -82,9 +82,11 @@ class ZitadelWebhookCommand extends Kernel
 
         $apiIdentifier = $init[ self::API_IDENTIFIER ] ?? null ;
         $baseUrl       = $init[ self::BASE_URL       ] ?? null ;
+        $configFile    = $init[ self::CONFIG_FILE    ] ?? null ;
 
         $this->apiIdentifier  = is_string( $apiIdentifier ) ? $apiIdentifier : null ;
         $this->baseUrl        = is_string( $baseUrl       ) ? $baseUrl       : null ;
+        $this->configFile     = is_string( $configFile    ) ? $configFile    : '' ;
 
         $this->initializeZitadelClient( $init , $container ) ;
 
@@ -147,6 +149,7 @@ class ZitadelWebhookCommand extends Kernel
 
     public const string API_IDENTIFIER  = 'apiIdentifier'  ;
     public const string BASE_URL        = 'baseUrl'        ;
+    public const string CONFIG_FILE     = 'configFile'     ;
     public const string WEBHOOK_CATALOG = 'webhookCatalog' ;
 
     // -------------------------------------------------------------------------
@@ -161,14 +164,6 @@ class ZitadelWebhookCommand extends Kernel
      * labels that happen to contain a dash.
      */
     public const string NAME_SEPARATOR = ' - ' ;
-
-    /**
-     * Maximum number of parent directories `findRootConfigPath()`
-     * walks up before giving up. Ten is comfortably beyond the
-     * realistic depth of `oihana/zitadel/commands/` inside a vendor
-     * tree, and short enough to avoid scanning the filesystem root.
-     */
-    private const int CONFIG_LOOKUP_DEPTH = 10 ;
 
     // -------------------------------------------------------------------------
     // Properties
@@ -186,6 +181,15 @@ class ZitadelWebhookCommand extends Kernel
      * receiver endpoint when the deployment is publicly reachable.
      */
     protected ?string $baseUrl = null ;
+
+    /**
+     * Absolute path to the config file the secret is written into, injected
+     * via {@see self::CONFIG_FILE}. Typically a per-environment file the host
+     * application reads (directly or after a build step). The file is created
+     * if missing. When empty, the command prints the snippet for the operator
+     * to paste manually instead of writing anything.
+     */
+    protected string $configFile = '' ;
 
     /**
      * Catalog of every webhook the API consumes, built from
@@ -324,7 +328,7 @@ class ZitadelWebhookCommand extends Kernel
 
         $this->addOption( self::OPTION_ENDPOINT , null , InputOption::VALUE_OPTIONAL , 'Public HTTPS URL Zitadel will POST to (required on install when baseUrl is private)' ) ;
         $this->addOption( self::OPTION_MINE     , null , InputOption::VALUE_NONE     , 'On `list`, restrict the output to Targets owned by this API (matching prefix)' ) ;
-        $this->addOption( self::OPTION_PURGE    , null , InputOption::VALUE_NONE     , 'On `uninstall`, blank the secret in config.toml (event/label/route preserved)' ) ;
+        $this->addOption( self::OPTION_PURGE    , null , InputOption::VALUE_NONE     , 'On `uninstall`, blank the secret in the config file (event/label/route preserved)' ) ;
         $this->addOption( self::OPTION_YES      , 'y'  , InputOption::VALUE_NONE     , 'Skip the interactive confirmation (for cron / scripted runs)' ) ;
     }
 
@@ -502,7 +506,7 @@ class ZitadelWebhookCommand extends Kernel
      *      `baseUrl + descriptor.route` if the base URL is publicly
      *      reachable, else fail loudly.
      *   4. Create the Cible, bind the Execution, write the secret to
-     *      `config.toml`.
+     *      the config file.
      */
     private function runInstall( SymfonyStyle $io , InputInterface $input ) :int
     {
@@ -591,7 +595,7 @@ class ZitadelWebhookCommand extends Kernel
         {
             if( !is_string( $this->apiIdentifier ) || $this->apiIdentifier === '' )
             {
-                $io->error( '--mine requires [auth.api].identifier to be set in config.toml.' ) ;
+                $io->error( '--mine requires [auth.api].identifier to be set in the configuration.' ) ;
                 return ExitCode::FAILURE ;
             }
 
@@ -632,9 +636,9 @@ class ZitadelWebhookCommand extends Kernel
     /**
      * `rotate <key>` — drop the existing Cible (named with the
      * canonical convention) and recreate it with the same endpoint to
-     * obtain a fresh signing key. The new secret is written to
-     * `config.toml` automatically; the user is reminded to run
-     * `bun refresh` afterwards.
+     * obtain a fresh signing key. The new secret is written to the
+     * config file automatically; the user is reminded to rebuild their
+     * configuration afterwards.
      */
     private function runRotate( SymfonyStyle $io , InputInterface $input ) :int
     {
@@ -755,7 +759,7 @@ class ZitadelWebhookCommand extends Kernel
 
     /**
      * `uninstall <key>` — removes the Cible (with confirmation), and
-     * optionally blanks the secret in `config.toml` when
+     * optionally blanks the secret in the config file when
      * `--purge-config` is supplied. The descriptor body
      * (event / label / route) is always preserved so a future
      * `install` can restore the binding without re-typing the contract.
@@ -817,11 +821,11 @@ class ZitadelWebhookCommand extends Kernel
 
         if( ( bool ) $input->getOption( self::OPTION_PURGE ) )
         {
-            $this->writeSecretOrWarn( $io , $descriptor->key , '' , 'Secret blanked in config.toml.' ) ;
+            $this->writeSecretOrWarn( $io , $descriptor->key , '' , 'Secret blanked in the config file.' ) ;
         }
         else
         {
-            $io->writeln( '<comment>The secret in config.toml is preserved. Pass --purge-config to blank it.</comment>' ) ;
+            $io->writeln( '<comment>The secret in the config file is preserved. Pass --purge-config to blank it.</comment>' ) ;
         }
 
         return ExitCode::SUCCESS ;
@@ -840,13 +844,13 @@ class ZitadelWebhookCommand extends Kernel
     {
         if( !is_string( $this->apiIdentifier ) || $this->apiIdentifier === '' )
         {
-            $io->error( 'No apiIdentifier injected — set [auth.api].identifier in config.toml.' ) ;
+            $io->error( 'No apiIdentifier injected — set [auth.api].identifier in the configuration.' ) ;
             return false ;
         }
 
         if( !is_string( $this->baseUrl ) || $this->baseUrl === '' )
         {
-            $io->error( 'No baseUrl injected — set [app].baseUrl in config.toml.' ) ;
+            $io->error( 'No baseUrl injected — set [app].baseUrl in the configuration.' ) ;
             return false ;
         }
 
@@ -909,38 +913,6 @@ class ZitadelWebhookCommand extends Kernel
     }
 
     /**
-     * Locates the project-root `config.toml` by walking up the
-     * directory tree from the current source file. Returns `null`
-     * when the file cannot be found within {@see CONFIG_LOOKUP_DEPTH}
-     * levels — the caller falls back to a manual paste prompt.
-     */
-    private function findRootConfigPath() :?string
-    {
-        $dir = __DIR__ ;
-
-        for( $i = 0 ; $i < self::CONFIG_LOOKUP_DEPTH ; $i++ )
-        {
-            $candidate = $dir . '/config.toml' ;
-
-            if( is_file( $candidate ) )
-            {
-                return $candidate ;
-            }
-
-            $parent = dirname( $dir ) ;
-
-            if( $parent === $dir )
-            {
-                return null ;
-            }
-
-            $dir = $parent ;
-        }
-
-        return null ;
-    }
-
-    /**
      * Searches a pre-loaded, normalised Target list for an exact name match.
      *
      * Pure lookup over the result of {@see loadTargets()} — kept separate from
@@ -955,15 +927,7 @@ class ZitadelWebhookCommand extends Kernel
      */
     private function findTargetByName( array $targets , string $name ) :?array
     {
-        foreach( $targets as $target )
-        {
-            if( ( $target[ 'name' ] ?? null ) === $name )
-            {
-                return $target ;
-            }
-        }
-
-        return null ;
+        return array_find( $targets , fn( $target ) => ( $target['name'] ?? null ) === $name );
     }
 
     /**
@@ -1081,7 +1045,7 @@ class ZitadelWebhookCommand extends Kernel
         {
             $action = (string) $input->getArgument( self::ARGUMENT_ACTION ) ;
             $io->error( "$action requires a <key> argument matching a section under [zitadel.webhooks.*]." ) ;
-            $io->writeln( '  Available keys: ' . ( empty( $this->webhookCatalog->keys() ) ? '<none — check config.toml>' : implode( ' , ' , $this->webhookCatalog->keys() ) ) ) ;
+            $io->writeln( '  Available keys: ' . ( empty( $this->webhookCatalog->keys() ) ? '<none — check your configuration>' : implode( ' , ' , $this->webhookCatalog->keys() ) ) ) ;
             return null ;
         }
 
@@ -1089,7 +1053,7 @@ class ZitadelWebhookCommand extends Kernel
 
         if( $descriptor === null )
         {
-            $io->error( "Unknown webhook key '$key' — no [zitadel.webhooks.$key] section in config.toml." ) ;
+            $io->error( "Unknown webhook key '$key' — no [zitadel.webhooks.$key] section in the configuration." ) ;
             $io->writeln( '  Available keys: ' . ( empty( $this->webhookCatalog->keys() ) ? '<none>' : implode( ' , ' , $this->webhookCatalog->keys() ) ) ) ;
             return null ;
         }
@@ -1132,10 +1096,11 @@ class ZitadelWebhookCommand extends Kernel
     }
 
     /**
-     * Writes (or blanks) the descriptor secret in the project-root
-     * `config.toml`. Always backs up the current file to `config.toml.bak`
-     * before the in-place write, then reminds the operator to run
-     * `bun refresh` to propagate the change to `api/configs/config.toml`.
+     * Writes (or blanks) the descriptor secret in the injected target file
+     * ({@see self::CONFIG_FILE}). An existing file is backed up to
+     * `<file>.bak` before the in-place write; a missing target is created.
+     * When no target is configured, the snippet is printed for the operator
+     * to paste manually instead.
      *
      * Failures are surfaced as warnings rather than fatal errors —
      * the previous Zitadel-side action (Cible creation, deletion, …)
@@ -1144,17 +1109,20 @@ class ZitadelWebhookCommand extends Kernel
      */
     private function writeSecretOrWarn( SymfonyStyle $io , string $key , string $secret , ?string $successMessage = null ) :void
     {
-        $path = $this->findRootConfigPath() ;
+        $path = $this->configFile ;
 
-        if( $path === null )
+        if( $path === '' )
         {
-            $io->warning( 'Could not locate config.toml — paste the snippet manually.' ) ;
+            $io->warning( 'No config file configured — paste the snippet manually.' ) ;
             $io->writeln( '  [zitadel.webhooks.' . $key . ']' ) ;
             $io->writeln( '  secret = "' . $secret . '"' ) ;
             return ;
         }
 
-        $content = file_get_contents( $path ) ;
+        // A missing target is created from scratch (replaceSecretInToml
+        // appends the section); an existing one is read and backed up.
+        $exists  = is_file( $path ) ;
+        $content = $exists ? file_get_contents( $path ) : '' ;
 
         if( $content === false )
         {
@@ -1162,19 +1130,24 @@ class ZitadelWebhookCommand extends Kernel
             return ;
         }
 
-        $backup = $path . '.bak' ;
+        $backup = null ;
 
-        if( file_put_contents( $backup , $content ) === false )
+        if( $exists )
         {
-            $io->warning( 'Could not write backup ' . $backup . ' — aborting injection.' ) ;
-            return ;
+            $backup = $path . '.bak' ;
+
+            if( file_put_contents( $backup , $content ) === false )
+            {
+                $io->warning( 'Could not write backup ' . $backup . ' — aborting injection.' ) ;
+                return ;
+            }
         }
 
         $updated = self::replaceSecretInToml( $content , $key , $secret ) ;
 
         if( file_put_contents( $path , $updated ) === false )
         {
-            $io->warning( 'Could not write ' . $path . ' — restore from ' . $backup ) ;
+            $io->warning( 'Could not write ' . $path . ( $backup !== null ? ' — restore from ' . $backup : '' ) ) ;
             return ;
         }
 
@@ -1186,10 +1159,14 @@ class ZitadelWebhookCommand extends Kernel
         }
         else
         {
-            $io->success( 'Secret written to [zitadel.webhooks.' . $key . '] in config.toml' ) ;
+            $io->success( 'Secret written to [zitadel.webhooks.' . $key . '] in ' . basename( $path ) ) ;
         }
 
-        $io->writeln( '  Backup saved to <comment>' . $backup . '</comment>' ) ;
-        $io->writeln( '  Run <comment>bun refresh</comment> to propagate the change to api/configs/config.toml' ) ;
+        if( $backup !== null )
+        {
+            $io->writeln( '  Backup saved to <comment>' . $backup . '</comment>' ) ;
+        }
+
+        $io->writeln( '  Rebuild your configuration so the change takes effect.' ) ;
     }
 }

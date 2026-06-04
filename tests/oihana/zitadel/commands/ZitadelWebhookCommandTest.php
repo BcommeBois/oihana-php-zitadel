@@ -238,6 +238,74 @@ TOML ;
     }
 
     // =========================================================================
+    // writeSecretOrWarn (file I/O wrapper around the injected CONFIG_FILE)
+    // =========================================================================
+
+    public function testWriteSecretCreatesFileWhenMissing() :void
+    {
+        $path = $this->tempConfigPath() ;
+
+        $this->invokeWriteSecret( $path , 'password_changed' , 'sk_new' ) ;
+
+        $this->assertFileExists( $path ) ;
+
+        $content = (string) file_get_contents( $path ) ;
+
+        $this->assertStringContainsString( '[zitadel.webhooks.password_changed]' , $content ) ;
+        $this->assertStringContainsString( 'secret = "sk_new"' , $content ) ;
+
+        // Nothing to back up when the target is created from scratch.
+        $this->assertFileDoesNotExist( $path . '.bak' ) ;
+
+        @unlink( $path ) ;
+    }
+
+    public function testWriteSecretUpdatesExistingFileBacksUpAndPreservesOtherKeys() :void
+    {
+        $path = $this->tempConfigPath() ;
+
+        file_put_contents
+        (
+            $path ,
+            "[arango]\npassword = \"keep-me\"\n\n[zitadel.webhooks.password_changed]\nsecret = \"old\"\n"
+        ) ;
+
+        $this->invokeWriteSecret( $path , 'password_changed' , 'sk_rotated' ) ;
+
+        $content = (string) file_get_contents( $path ) ;
+
+        $this->assertStringContainsString   ( 'secret = "sk_rotated"' , $content ) ;
+        $this->assertStringNotContainsString( 'secret = "old"'        , $content ) ;
+        // An unrelated secret elsewhere in the file is left untouched.
+        $this->assertStringContainsString   ( 'password = "keep-me"'  , $content ) ;
+
+        // The previous content is preserved in the backup.
+        $this->assertFileExists( $path . '.bak' ) ;
+        $this->assertStringContainsString( 'secret = "old"' , (string) file_get_contents( $path . '.bak' ) ) ;
+
+        @unlink( $path ) ;
+        @unlink( $path . '.bak' ) ;
+    }
+
+    public function testWriteSecretPrintsSnippetWhenNoConfigFile() :void
+    {
+        // No CONFIG_FILE injected (the property defaults to ''): the command
+        // must print the snippet for manual paste, not touch the filesystem.
+        $buffer  = new BufferedOutput() ;
+        $class   = new ReflectionClass( ZitadelWebhookCommand::class ) ;
+        $command = $class->newInstanceWithoutConstructor() ;
+
+        $io = new SymfonyStyle( new ArrayInput( [] ) , $buffer ) ;
+
+        $class->getMethod( 'writeSecretOrWarn' )->invoke( $command , $io , 'password_changed' , 'sk_manual' , null ) ;
+
+        $output = $buffer->fetch() ;
+
+        $this->assertStringContainsString( '[zitadel.webhooks.password_changed]' , $output ) ;
+        $this->assertStringContainsString( 'secret = "sk_manual"' , $output ) ;
+    }
+
+    // =========================================================================
     // isPermissionDenied
     // =========================================================================
 
@@ -348,6 +416,33 @@ TOML ;
         $reflected = $class->getMethod( 'findTargetByName' ) ;
 
         return $reflected->invoke( $command , $targets , $name ) ;
+    }
+
+    /**
+     * Unique temp path for a throwaway config file (never created on disk
+     * until a test writes to it).
+     */
+    private function tempConfigPath() :string
+    {
+        return sys_get_temp_dir() . '/zitadel_webhook_' . uniqid() . '.toml' ;
+    }
+
+    /**
+     * Invokes the private `writeSecretOrWarn` on a construction-free instance
+     * whose `$configFile` is pointed at the supplied path, so the file I/O
+     * (create / back up / write) can be exercised without the DI-heavy
+     * constructor or the project-root lookup.
+     */
+    private function invokeWriteSecret( string $path , string $key , string $secret ) :void
+    {
+        $class   = new ReflectionClass( ZitadelWebhookCommand::class ) ;
+        $command = $class->newInstanceWithoutConstructor() ;
+
+        $class->getProperty( 'configFile' )->setValue( $command , $path ) ;
+
+        $io = new SymfonyStyle( new ArrayInput( [] ) , new BufferedOutput() ) ;
+
+        $class->getMethod( 'writeSecretOrWarn' )->invoke( $command , $io , $key , $secret , null ) ;
     }
 
     /**

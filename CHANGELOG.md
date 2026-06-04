@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `ZitadelWebhookCommand`: the descriptor secret is now written to a
+  caller-injected config file (new `CONFIG_FILE` init key) instead of a
+  guessed project-root `config.toml`. A missing target file is created; an
+  existing one is backed up to `<file>.bak` before the in-place rewrite. When
+  no target is injected the snippet is printed for manual paste. Removed the
+  `findRootConfigPath()` filesystem walk (and `CONFIG_LOOKUP_DEPTH`) and the
+  project-specific `config.toml` / `bun refresh` wording from messages and
+  docblocks — the command is now path-agnostic.
+
 ### Added
 
 - Initial scaffold: Composer manifest, PHPUnit 12 + phpDocumentor 3 configuration, MPL-2.0 license, README, CHANGELOG, sibling-aligned folder layout (`src/`, `tests/`, `wiki/`, `assets/`), one `autoload.files` entry (`getZitadelClient.php`).

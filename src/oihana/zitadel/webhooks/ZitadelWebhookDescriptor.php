@@ -23,7 +23,7 @@ use InvalidArgumentException;
  * ```
  *
  * Validation runs in the constructor — anything malformed raises an
- * {@see InvalidArgumentException} so a typo in `config.toml` surfaces
+ * {@see InvalidArgumentException} so a typo in the configuration surfaces
  * at boot rather than silently disabling the webhook.
  *
  * The descriptor is immutable: {@see withSecret()} returns a new

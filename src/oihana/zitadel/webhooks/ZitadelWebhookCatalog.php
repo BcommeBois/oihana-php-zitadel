@@ -7,7 +7,7 @@ use InvalidArgumentException;
 /**
  * In-memory registry of every Zitadel webhook the API consumes.
  *
- * Built at boot from the `[zitadel.webhooks.*]` section of `config.toml`
+ * Built at boot from the `[zitadel.webhooks.*]` section of the configuration
  * — one {@see ZitadelWebhookDescriptor} per `[zitadel.webhooks.<key>]`
  * subsection. The catalogue exposes a tiny key-based API used by:
  *
@@ -19,7 +19,7 @@ use InvalidArgumentException;
  *
  * The catalogue is **immutable** — once built from config it cannot be
  * mutated. The CLI command rebuilds it on each invocation against the
- * fresh `config.toml`. Tests can construct a catalogue programmatically
+ * fresh configuration. Tests can construct a catalogue programmatically
  * via the constructor with a list of descriptors.
  *
  * @package oihana\zitadel\webhooks
