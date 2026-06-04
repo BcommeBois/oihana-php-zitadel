@@ -85,62 +85,6 @@ class ZitadelWebhookCommandTest extends TestCase
     }
 
     // =========================================================================
-    // isPublicBaseUrl
-    // =========================================================================
-
-    public function testIsPublicBaseUrlAcceptsFqdn() :void
-    {
-        $this->assertTrue( ZitadelWebhookCommand::isPublicBaseUrl( 'https://api.example.com'        ) ) ;
-        $this->assertTrue( ZitadelWebhookCommand::isPublicBaseUrl( 'https://api.staging.example.com' ) ) ;
-        $this->assertTrue( ZitadelWebhookCommand::isPublicBaseUrl( 'http://example.org'              ) ) ;
-    }
-
-    public function testIsPublicBaseUrlAcceptsPublicIPv4() :void
-    {
-        $this->assertTrue( ZitadelWebhookCommand::isPublicBaseUrl( 'https://8.8.8.8'   ) ) ;
-        $this->assertTrue( ZitadelWebhookCommand::isPublicBaseUrl( 'https://1.1.1.1'   ) ) ;
-        $this->assertTrue( ZitadelWebhookCommand::isPublicBaseUrl( 'https://203.0.113.1' ) ) ;
-    }
-
-    public function testIsPublicBaseUrlRejectsLocalhost() :void
-    {
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://localhost'                ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'https://myapp.localhost' ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://anything.localhost:8080'  ) ) ;
-    }
-
-    public function testIsPublicBaseUrlRejectsLoopback() :void
-    {
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://127.0.0.1'   ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://127.10.0.1'  ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://[::1]'       ) ) ;
-    }
-
-    public function testIsPublicBaseUrlRejectsRfc1918Ranges() :void
-    {
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://10.0.0.1'       ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://10.1.2.3'       ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://172.16.0.1'     ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://172.31.255.255' ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'http://192.168.1.10'   ) ) ;
-    }
-
-    public function testIsPublicBaseUrlAcceptsIPv4ButRejectsBoundaryHostsCorrectly() :void
-    {
-        // 172.32.x is just outside the private range — public.
-        $this->assertTrue ( ZitadelWebhookCommand::isPublicBaseUrl( 'http://172.32.0.1' ) ) ;
-        // 172.15.x is just below the private range — public.
-        $this->assertTrue ( ZitadelWebhookCommand::isPublicBaseUrl( 'http://172.15.0.1' ) ) ;
-    }
-
-    public function testIsPublicBaseUrlRejectsEmptyOrMalformedInput() :void
-    {
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( ''            ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'not-a-url'   ) ) ;
-        $this->assertFalse( ZitadelWebhookCommand::isPublicBaseUrl( 'no-scheme.com' ) ) ;
-    }
-
-    // =========================================================================
     // replaceSecretInToml
     // =========================================================================
 

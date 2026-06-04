@@ -26,6 +26,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Throwable;
 
 use function oihana\controllers\helpers\resolveDependency;
+use function oihana\http\helpers\url\isPublicUrl;
 
 /**
  * Catalog-driven manager for the Zitadel V2 *Targets* (Cibles) and
@@ -227,52 +228,6 @@ class ZitadelWebhookCommand extends Kernel
         }
 
         return $apiIdentifier . self::NAME_SEPARATOR . $label . self::NAME_SEPARATOR . $host ;
-    }
-
-    /**
-     * Whether the supplied base URL points to a host Zitadel cloud can
-     * reach over the public Internet.
-     *
-     * Returns `false` for: `localhost` and `*.localhost`, IPv6
-     * loopback, IPv4 loopback (`127.0.0.0/8`) and the three RFC 1918
-     * private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`).
-     * Returns `true` for any other resolvable host (FQDN or public
-     * IPv4 / IPv6).
-     *
-     * The CLI uses this to decide whether `--endpoint` is mandatory
-     * on `install`: a private base URL implies a tunnel (cloudflared,
-     * ngrok, …) whose public URL the operator must supply explicitly.
-     */
-    public static function isPublicBaseUrl( string $baseUrl ) :bool
-    {
-        $host = parse_url( $baseUrl , PHP_URL_HOST ) ;
-
-        if( !is_string( $host ) || $host === '' )
-        {
-            return false ;
-        }
-
-        if( $host === 'localhost' || str_ends_with( $host , '.localhost' ) )
-        {
-            return false ;
-        }
-
-        if( $host === '::1' || $host === '[::1]' )
-        {
-            return false ;
-        }
-
-        if( filter_var( $host , FILTER_VALIDATE_IP , FILTER_FLAG_IPV4 ) !== false )
-        {
-            return filter_var
-            (
-                $host ,
-                FILTER_VALIDATE_IP ,
-                FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-            ) !== false ;
-        }
-
-        return true ;
     }
 
     /**
@@ -1081,7 +1036,7 @@ class ZitadelWebhookCommand extends Kernel
             return $explicit ;
         }
 
-        if( !self::isPublicBaseUrl( ( string ) $this->baseUrl ) )
+        if( !isPublicUrl( ( string ) $this->baseUrl ) )
         {
             $io->error
             (

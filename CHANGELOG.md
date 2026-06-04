@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `ZitadelWebhookCommand`: the public-reachability check now delegates to the
+  new `oihana\http\helpers\url\isPublicUrl()` helper from oihana/php-http
+  (dev-main ≥ `22df5e7`) instead of the in-class `isPublicBaseUrl()`. Behaviour
+  is a strict superset of the old method: IP literals are handed to
+  `isPublicIp()`, so private / reserved IPv6 ranges (RFC 4193 `fd00::/8`, …) are
+  now rejected too, and bracketed IPv6 hosts (`[::1]`) are normalised before the
+  test. All previously covered cases (FQDN, public IPv4, `localhost` /
+  `*.localhost`, loopback, RFC 1918, `172.x` boundaries, empty / malformed
+  input) behave identically.
 - `ZitadelWebhookCommand`: the descriptor secret is now written to a
   caller-injected config file (new `CONFIG_FILE` init key) instead of a
   guessed project-root `config.toml`. A missing target file is created; an
@@ -37,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ZitadelWebhookCommand` — permission-aware feedback: when a management call is refused with HTTP 403, the command prints an actionable remediation hint (grant the service account a manager role allowed to manage Actions/Targets — an instance-level capability, typically *IAM Owner*). Wired on Target creation, Execution binding, Target listing and Target deletion.
 - `ZitadelWebhookCommand` — least-privilege reminder printed after a successful `install` / `rotate`, inviting the operator to revoke the elevated, instance-level role that day-to-day API traffic does not need.
 - `ZitadelWebhookCommand::isPermissionDenied()` — public static predicate that detects an HTTP 403 (Forbidden) outcome in a structured client result.
+
+### Removed
+
+- `ZitadelWebhookCommand::isPublicBaseUrl()` — superseded by oihana/php-http's `oihana\http\helpers\url\isPublicUrl()`. Its dedicated unit tests were dropped as well, the helper being covered by php-http's own suite.
 
 ### Changed
 
