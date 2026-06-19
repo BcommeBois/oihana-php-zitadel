@@ -25,7 +25,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 use Throwable;
 
-use function oihana\controllers\helpers\resolveDependency;
+use function oihana\core\container\resolveDependency;
 use function oihana\http\helpers\url\isPublicUrl;
 
 /**
