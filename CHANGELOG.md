@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--yes`; positional `<key>`; default action `list`), and genericised the
   project-specific wording (hard-coded `config.toml`, `bun refresh`) into
   neutral "your configuration" / "rebuild your configuration" language.
+- Dependencies: dropped the now-unused `oihana/php-system` requirement. `php-zitadel` consumes no `php-system` namespace directly; the focused split packages it needs (e.g. `oihana/php-logging`, `oihana/php-traits`) are pulled transitively through `oihana/php-arango`, `oihana/php-auth` and `oihana/php-commands`. Removes the heavy Slim/Twig/Symfony stack from the dependency tree. No code or public-API change.
 
 ### Added
 
