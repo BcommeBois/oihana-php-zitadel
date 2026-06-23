@@ -515,6 +515,21 @@ class ZitadelClientServiceTraitTest extends TestCase
         $this->assertStringContainsString( 'user not found' , (string) $client->getLastServiceErrorBody() ) ;
     }
 
+    public function testCreateUserKeyReturnsNullWhenSuccessBodyLacksKeyIdOrDetails() :void
+    {
+        // 2xx but the body is missing keyId / keyDetails — Zitadel contract
+        // drift or a truncated payload. Must return null *before* attempting
+        // to base64-decode a missing field.
+        $calls  = [] ;
+        $client = $this->createCapturingClient
+        (
+            $calls ,
+            fn() => $this->ok( (object) [ 'keyId' => 'k' ] ) // no keyDetails
+        ) ;
+
+        $this->assertNull( $client->createUserKey( 'mu' ) ) ;
+    }
+
     // =========================================================================
     // grantUserOnProject()
     // =========================================================================
@@ -597,6 +612,20 @@ class ZitadelClientServiceTraitTest extends TestCase
 
         $this->assertNull( $client->grantUserOnProject( 'mu' , 'project-xyz' ) ) ;
         $this->assertSame( 403 , $client->getLastServiceErrorStatus() ) ;
+    }
+
+    public function testGrantUserOnProjectReturnsNullWhenSuccessBodyLacksUserGrantId() :void
+    {
+        // 2xx but the body carries no userGrantId — must not fabricate a
+        // grant object from an empty id.
+        $calls  = [] ;
+        $client = $this->createCapturingClient
+        (
+            $calls ,
+            fn() => $this->ok( (object) [ 'details' => (object) [] ] )
+        ) ;
+
+        $this->assertNull( $client->grantUserOnProject( 'mu' , 'project-xyz' ) ) ;
     }
 
     // =========================================================================

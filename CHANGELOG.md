@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ZitadelOutcomeTrait::extractZitadelMessage()` and the DI side of
   `ZitadelClientTrait`. The `enums/` and `helpers/` directories now sit at
   100% line coverage; overall line coverage rises 37.17% → 40.37%.
+- Coverage drive (lot 2 — client traits, group 1): full unit coverage for
+  `ZitadelClientUserTrait` (`getUser`, `deleteUser`, `findUserByEmail`,
+  `listUsers`, `updateUserProfile` and the `setEmail(verified: true)`
+  admin-trusted branch — completing the trait to 100%),
+  `ZitadelClientTargetTrait` (Targets + Executions: `createTarget` body
+  shape / Go-duration timeout clamping, `deleteTarget`, `listTargets`,
+  `setEventExecution`), `ZitadelClientPasswordTrait` (reset-code, reset-link
+  with/without URL template, current-password and verification-code change
+  flows) and the last two branches of `ZitadelClientServiceTrait`
+  (`createUserKey` / `grantUserOnProject` empty-success-body guards). The
+  four traits sit at 100% line coverage; overall line coverage rises
+  40.37% → 50.71%. No production code changed.
 
 ## [0.1.0] - 2026-06-21
 

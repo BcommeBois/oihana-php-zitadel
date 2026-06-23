@@ -412,4 +412,234 @@ class ZitadelClientUserTraitTest extends TestCase
 
         $this->assertSame( $expected , $client->lockUser( 'u' ) ) ;
     }
+
+    // =========================================================================
+    // setEmail( verified: true ) — admin-trusted branch
+    // =========================================================================
+
+    public function testSetEmailVerifiedTrueMarksVerifiedAndOmitsReturnCode() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestRawCapturingClient( $captured ) ;
+
+        $client->setEmail( 'uid' , 'New@Example.COM' , verified: true ) ;
+
+        $body = $captured[ 'body' ] ;
+
+        // Admin-trusted scenario: the address is flagged verified directly,
+        // no verification code is generated — so the `returnCode`
+        // discriminator must be absent.
+        $this->assertSame( 'new@example.com' , $body[ Zitadel::EMAIL ] ) ;
+        $this->assertTrue( $body[ Zitadel::IS_VERIFIED ] ?? null ) ;
+        $this->assertArrayNotHasKey( Zitadel::RETURN_CODE , $body , 'verified=true must NOT request a return code' ) ;
+    }
+
+    // =========================================================================
+    // updateUserProfile — V2 PATCH with human.profile shape
+    // =========================================================================
+
+    public function testUpdateUserProfileHitsTheV2UpdateEndpointWithPatch() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestRawCapturingClient( $captured ) ;
+
+        $client->updateUserProfile( 'uid' , 'Eve' , 'Eff' ) ;
+
+        $this->assertSame( 'PATCH' , $captured[ 'method' ] ) ;
+        $this->assertSame( '/v2/users/uid' , $captured[ 'path' ] ) ;
+    }
+
+    public function testUpdateUserProfileSendsSchemaOrgNamesNestedUnderHuman() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestRawCapturingClient( $captured ) ;
+
+        $client->updateUserProfile( 'uid' , 'Eve' , 'Eff' ) ;
+
+        $profile = $captured[ 'body' ][ Zitadel::HUMAN ][ Zitadel::PROFILE ] ?? null ;
+
+        $this->assertIsArray( $profile ) ;
+        $this->assertSame( 'Eve'     , $profile[ Zitadel::GIVEN_NAME   ] ?? null ) ;
+        $this->assertSame( 'Eff'     , $profile[ Zitadel::FAMILY_NAME  ] ?? null ) ;
+        $this->assertSame( 'Eve Eff' , $profile[ Zitadel::DISPLAY_NAME ] ?? null , 'displayName must be recomputed from given+family' ) ;
+
+        // V2 uses Schema.org-flavoured names — the V1 `firstName`/`lastName`
+        // would fail proto validation.
+        $this->assertArrayNotHasKey( Zitadel::FIRST_NAME , $profile ) ;
+        $this->assertArrayNotHasKey( Zitadel::LAST_NAME  , $profile ) ;
+    }
+
+    public function testUpdateUserProfilePropagatesRequestRawResult() :void
+    {
+        $client = $this->getMockBuilder( ZitadelClient::class )
+            ->disableOriginalConstructor()
+            ->onlyMethods([ 'requestRaw' ])
+            ->getMock() ;
+
+        $expected = [ 'success' => false , 'status' => 400 , 'body' => null , 'rawBody' => '{"message":"invalid"}' , 'error' => 'http_error' ] ;
+
+        $client->expects( $this->once() )
+            ->method( 'requestRaw' )
+            ->willReturn( $expected ) ;
+
+        $this->assertSame( $expected , $client->updateUserProfile( 'uid' , 'A' , 'B' ) ) ;
+    }
+
+    // =========================================================================
+    // getUser / deleteUser — thin request() wrappers over USER_BY_ID
+    // =========================================================================
+
+    public function testGetUserHitsUserByIdWithGet() :void
+    {
+        $captured = [] ;
+        $client   = $this->createCapturingClient( $captured ) ;
+
+        $client->getUser( 'uid-123' ) ;
+
+        $this->assertSame( 'GET' , $captured[ 'method' ] ) ;
+        $this->assertSame( '/management/v1/users/uid-123' , $captured[ 'path' ] ) ;
+        $this->assertNull( $captured[ 'body' ] ) ;
+    }
+
+    public function testDeleteUserHitsUserByIdWithDelete() :void
+    {
+        $captured = [] ;
+        $client   = $this->createCapturingClient( $captured ) ;
+
+        $client->deleteUser( 'uid-123' ) ;
+
+        $this->assertSame( 'DELETE' , $captured[ 'method' ] ) ;
+        $this->assertSame( '/management/v1/users/uid-123' , $captured[ 'path' ] ) ;
+    }
+
+    // =========================================================================
+    // findUserByEmail
+    // =========================================================================
+
+    public function testFindUserByEmailReturnsTheFirstResult() :void
+    {
+        $captured = [] ;
+        $first    = (object) [ 'userId' => 'u-1' ] ;
+        $client   = $this->createRequestClientReturning( (object) [ 'result' => [ $first , (object) [ 'userId' => 'u-2' ] ] ] , $captured ) ;
+
+        $this->assertSame( $first , $client->findUserByEmail( 'alice@test.com' ) ) ;
+        $this->assertSame( 'POST' , $captured[ 'method' ] ) ;
+        $this->assertSame( ZitadelEndpoint::USERS_SEARCH , $captured[ 'path' ] ) ;
+    }
+
+    public function testFindUserByEmailBuildsAnEqualsEmailQueryLowercased() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestClientReturning( (object) [ 'result' => [ (object) [ 'userId' => 'u-1' ] ] ] , $captured ) ;
+
+        $client->findUserByEmail( 'Alice@TEST.com' ) ;
+
+        $body = $captured[ 'body' ] ;
+        $this->assertSame( '0' , $body[ Zitadel::QUERY ][ Zitadel::OFFSET ] ) ;
+        $this->assertSame( 1   , $body[ Zitadel::QUERY ][ Zitadel::LIMIT  ] ) ;
+
+        $emailQuery = $body[ Zitadel::QUERIES ][ 0 ][ Zitadel::EMAIL_QUERY ] ;
+        $this->assertSame( 'alice@test.com' , $emailQuery[ Zitadel::EMAIL_ADDRESS ] , 'email must be lowercased' ) ;
+    }
+
+    public function testFindUserByEmailReturnsNullWhenNoResults() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestClientReturning( (object) [ 'result' => [] ] , $captured ) ;
+
+        $this->assertNull( $client->findUserByEmail( 'ghost@test.com' ) ) ;
+    }
+
+    public function testFindUserByEmailReturnsNullWhenRequestFails() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestClientReturning( null , $captured ) ;
+
+        // request() collapses any failure (HTTP error, transport, no token)
+        // to null — findUserByEmail must not choke on the null and must
+        // simply report "not found".
+        $this->assertNull( $client->findUserByEmail( 'whoever@test.com' ) ) ;
+    }
+
+    // =========================================================================
+    // listUsers
+    // =========================================================================
+
+    public function testListUsersSendsDefaultPaginationAndReturnsTheResultArray() :void
+    {
+        $captured = [] ;
+        $users    = [ (object) [ 'userId' => 'u-1' ] , (object) [ 'userId' => 'u-2' ] ] ;
+        $client   = $this->createRequestClientReturning( (object) [ 'result' => $users ] , $captured ) ;
+
+        $this->assertSame( $users , $client->listUsers() ) ;
+        $this->assertSame( 'POST' , $captured[ 'method' ] ) ;
+        $this->assertSame( ZitadelEndpoint::USERS_SEARCH , $captured[ 'path' ] ) ;
+        $this->assertSame( '0' , $captured[ 'body' ][ Zitadel::QUERY ][ Zitadel::OFFSET ] ) ;
+        $this->assertSame( 100 , $captured[ 'body' ][ Zitadel::QUERY ][ Zitadel::LIMIT  ] ) ;
+    }
+
+    public function testListUsersClampsNegativeOffsetAndZeroLimit() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestClientReturning( (object) [ 'result' => [] ] , $captured ) ;
+
+        $client->listUsers( limit: 0 , offset: -5 ) ;
+
+        // offset clamped to 0 (sent as a string), limit clamped to at least 1.
+        $this->assertSame( '0' , $captured[ 'body' ][ Zitadel::QUERY ][ Zitadel::OFFSET ] ) ;
+        $this->assertSame( 1   , $captured[ 'body' ][ Zitadel::QUERY ][ Zitadel::LIMIT  ] ) ;
+    }
+
+    public function testListUsersReturnsEmptyArrayWhenResponseHasNoResult() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestClientReturning( (object) [ 'details' => (object) [] ] , $captured ) ;
+
+        $this->assertSame( [] , $client->listUsers() ) ;
+    }
+
+    public function testListUsersReturnsEmptyArrayWhenRequestFails() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestClientReturning( null , $captured ) ;
+
+        $this->assertSame( [] , $client->listUsers() ) ;
+    }
+
+    public function testListUsersReturnsEmptyArrayWhenResultIsNotAnArray() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestClientReturning( (object) [ 'result' => 'not-an-array' ] , $captured ) ;
+
+        $this->assertSame( [] , $client->listUsers() ) ;
+    }
+
+    /**
+     * Builds a ZitadelClient mock whose protected request() returns the
+     * supplied value (object / null) and captures the call triplet —
+     * used for the read paths (findUserByEmail / listUsers) that branch
+     * on the decoded body shape.
+     *
+     * @param array<string,mixed> $captured Reference to receive the captured call.
+     */
+    private function createRequestClientReturning( mixed $return , array &$captured ) :ZitadelClient
+    {
+        $client = $this->getMockBuilder( ZitadelClient::class )
+            ->disableOriginalConstructor()
+            ->onlyMethods([ 'request' ])
+            ->getMock() ;
+
+        $client->expects( $this->any() )
+            ->method( 'request' )
+            ->willReturnCallback
+            (
+                function( string $method , string $path , array|object|null $body = null ) use ( &$captured , $return )
+                {
+                    $captured = [ 'method' => $method , 'path' => $path , 'body' => $body ] ;
+                    return $return ;
+                }
+            ) ;
+
+        return $client ;
+    }
 }
