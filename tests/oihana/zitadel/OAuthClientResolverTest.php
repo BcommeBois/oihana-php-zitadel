@@ -262,6 +262,70 @@ class OAuthClientResolverTest extends TestCase
         $this->assertNull( $resolver->resolve( 'client-7' ) ) ;
     }
 
+    /**
+     * `upsertLocal()` is a no-op when the app payload has no clientId.
+     */
+    public function testUpsertLocalReturnsEarlyWhenClientIdMissing() :void
+    {
+        $model = $this->createDocumentsMock() ;
+        $model->expects( $this->never() )->method( 'get' ) ;
+        $model->expects( $this->never() )->method( 'insert' ) ;
+        $model->expects( $this->never() )->method( 'update' ) ;
+
+        $resolver = new OAuthClientResolver( $model ) ;
+
+        $resolver->upsertLocal( (object) [ 'name' => 'No Client Id' ] ) ;
+    }
+
+    /**
+     * `upsertLocal()` swallows storage failures (best-effort auto-seeding).
+     */
+    public function testUpsertLocalSwallowsStorageFailure() :void
+    {
+        $model = $this->createDocumentsMock() ;
+        $model->method( 'get' )->willReturn( null ) ;
+        $model->method( 'insert' )->willThrowException( new \RuntimeException( 'arango down' ) ) ;
+
+        $resolver = new OAuthClientResolver( $model ) ;
+
+        // Must not propagate — a failed mirror write cannot break resolution.
+        $resolver->upsertLocal( (object) [ 'clientId' => 'client-x' , 'name' => 'X' ] ) ;
+
+        $this->expectNotToPerformAssertions() ;
+    }
+
+    /**
+     * A Zitadel fetch that throws is caught: resolve() returns null and
+     * negatively caches the result.
+     */
+    public function testResolveSwallowsZitadelFetchFailure() :void
+    {
+        $model   = $this->createDocumentsMock() ;
+        $zitadel = $this->createZitadelMock() ;
+
+        $model->method( 'get' )->willReturn( null ) ;
+        $zitadel->method( 'findApplicationByClientId' )
+                ->willThrowException( new \RuntimeException( 'zitadel down' ) ) ;
+
+        $resolver = new OAuthClientResolver( $model , $zitadel ) ;
+
+        $this->assertNull( $resolver->resolve( 'client-err' ) ) ;
+    }
+
+    /**
+     * A local Arango lookup that throws is caught: resolve() treats it as a
+     * local miss and continues (here, no Zitadel client → null).
+     */
+    public function testResolveSwallowsLocalLookupFailure() :void
+    {
+        $model = $this->createDocumentsMock() ;
+        $model->method( 'get' )->willThrowException( new \RuntimeException( 'arango down' ) ) ;
+
+        $resolver = new OAuthClientResolver( $model , null ) ;
+
+        $this->assertNull( $resolver->resolve( 'client-err' ) ) ;
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================

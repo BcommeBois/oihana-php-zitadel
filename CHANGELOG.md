@@ -65,6 +65,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shape, timeout forwarding/default, NO_TOKEN / HTTP_ERROR / TRANSPORT_ERROR
   mapping) and `request()` (body on success, null on failure). `traits/client`
   reaches 100%; overall line coverage rises 61.14% → 67.73%.
+- Coverage drive (lot 5 — partially-covered traits): completed
+  `SessionCreatorTrait` (lifecycle gate refusing non-active / null-status
+  users, app-label refresh on session update, best-effort error swallowing
+  in `createSession`, the `isSidRevoked` lookup-failure branch, and the
+  previously-untested `recordSuccessfulLogin` — early returns, counter bump
+  on subsequent login, first-login activation, update-failure swallowing —
+  plus `markInvitationAccepted` pending/no-pending/failure paths) and
+  `OAuthClientResolver` (`upsertLocal` missing-clientId no-op and
+  storage-failure swallowing, Zitadel-fetch and local-lookup failure
+  branches). The `(root)`, `traits` and `traits/client` directories now sit
+  at 100%; overall line coverage rises 67.73% → 74.12%. No production code
+  changed — every uncovered line was a guard or best-effort catch behaving
+  as documented.
 
 ## [0.1.0] - 2026-06-21
 

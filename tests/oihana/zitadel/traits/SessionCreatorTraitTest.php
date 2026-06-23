@@ -4,7 +4,10 @@ namespace tests\oihana\zitadel\traits;
 
 use oihana\arango\models\Documents;
 use oihana\enums\HashAlgorithm;
+use xyz\oihana\schema\auth\Invitation;
 use xyz\oihana\schema\auth\Session;
+use xyz\oihana\schema\auth\User;
+use xyz\oihana\schema\constants\InvitationStatus;
 use oihana\zitadel\OAuthClientResolver;
 use oihana\zitadel\traits\SessionCreatorTrait;
 
@@ -33,6 +36,7 @@ class SessionCreatorFixture
         createSession                as public ;
         extractClaimsFromAccessToken as public ;
         isSidRevoked                 as public ;
+        recordSuccessfulLogin        as public ;
     }
 
     public ?Documents            $sessionsModel       = null ;
@@ -440,5 +444,302 @@ class SessionCreatorTraitTest extends TestCase
         $fixture = $this->createFixture( $sessions ) ;
 
         $fixture->isSidRevoked( [ 'sid' => 'session-abc' ] ) ;
+    }
+
+    public function testIsSidRevokedReturnsFalseWhenLookupThrows() :void
+    {
+        $sessions = $this->getMockBuilder( Documents::class )
+            ->disableOriginalConstructor()
+            ->onlyMethods([ 'get' ])
+            ->getMock() ;
+
+        $sessions->method( 'get' )->willThrowException( new \RuntimeException( 'arango down' ) ) ;
+
+        $fixture = $this->createFixture( $sessions ) ;
+
+        // Fail-open: a lookup error must not block a bootstrap.
+        $this->assertFalse( $fixture->isSidRevoked( [ 'sid' => 'session-abc' ] ) ) ;
+    }
+
+    // =========================================================================
+    // createSession — lifecycle gate
+    // =========================================================================
+
+    public function testCreateSessionRefusedWhenUserStatusIsNotActive() :void
+    {
+        $user         = new stdClass() ;
+        $user->_key   = '42' ;
+        $user->status = 'disabled' ;
+
+        $sessions = $this->createSessionsMock() ;
+        $sessions->expects( $this->never() )->method( 'list'   ) ;
+        $sessions->expects( $this->never() )->method( 'insert' ) ;
+
+        $fixture = $this->createFixture( $sessions , $this->createUsersMock( $user ) ) ;
+
+        $this->assertNull( $fixture->createSession( $this->createRequest() , 'raw-token' , 'user-sub' , 'client-api' ) ) ;
+    }
+
+    public function testCreateSessionRefusedWhenUserStatusIsNull() :void
+    {
+        // Legacy user never backfilled with a lifecycle status: a null status
+        // blocks too (operators must run the backfill once).
+        $user       = new stdClass() ;
+        $user->_key = '42' ;
+
+        $sessions = $this->createSessionsMock() ;
+        $sessions->expects( $this->never() )->method( 'insert' ) ;
+
+        $fixture = $this->createFixture( $sessions , $this->createUsersMock( $user ) ) ;
+
+        $this->assertNull( $fixture->createSession( $this->createRequest() , 'raw-token' , 'user-sub' , 'client-api' ) ) ;
+    }
+
+    // =========================================================================
+    // createSession — app label refresh on update
+    // =========================================================================
+
+    public function testCreateSessionUpdatesAppLabelWhenResolverNameDiffers() :void
+    {
+        $existing         = new stdClass() ;
+        $existing->_key   = 's-existing' ;
+        $existing->userId = '42' ;
+        $existing->name   = 'Old Label' ;
+
+        $captured = [] ;
+
+        $sessions = $this->createSessionsMock() ;
+        $sessions->method( 'list' )->willReturn( [ $existing ] ) ;
+        $sessions->method( 'update' )->willReturnCallback( function( array $args ) use ( &$captured )
+        {
+            $captured = $args ;
+            return null ;
+        } ) ;
+
+        $resolver = $this->getMockBuilder( OAuthClientResolver::class )
+            ->disableOriginalConstructor()
+            ->onlyMethods([ 'resolve' ])
+            ->getMock() ;
+        $resolver->method( 'resolve' )->willReturn( 'New Label' ) ;
+
+        $fixture = $this->createFixture( $sessions ) ;
+        $fixture->oauthClientResolver = $resolver ;
+
+        $fixture->createSession( $this->createRequest() , 'raw-token' , 'user-sub' , 'client-api' ) ;
+
+        // A resolved name that differs from the stored one must be written on
+        // refresh so a Zitadel-side rename propagates without a full resync.
+        $this->assertSame( 'New Label' , $captured[ 'doc' ][ Schema::NAME ] ?? null ) ;
+    }
+
+    // =========================================================================
+    // createSession — best-effort error swallowing
+    // =========================================================================
+
+    public function testCreateSessionReturnsNullWhenModelThrows() :void
+    {
+        $sessions = $this->createSessionsMock() ;
+        $sessions->method( 'list' )->willThrowException( new \RuntimeException( 'arango down' ) ) ;
+
+        $fixture = $this->createFixture( $sessions ) ;
+
+        // Session creation is best-effort: a storage failure must collapse to
+        // null, never propagate and break the authentication flow.
+        $this->assertNull( $fixture->createSession( $this->createRequest() , 'raw-token' , 'user-sub' , 'client-api' ) ) ;
+    }
+
+    // =========================================================================
+    // recordSuccessfulLogin
+    // =========================================================================
+
+    /**
+     * Builds a users model mock with get() returning $getResult and update()
+     * capturing the doc into $captured.
+     *
+     * @param array<string,mixed> $captured
+     */
+    private function createUsersGetUpdateMock( ?object $getResult , array &$captured ) :Documents&MockObject
+    {
+        $mock = $this->getMockBuilder( Documents::class )
+            ->disableOriginalConstructor()
+            ->onlyMethods([ 'get' , 'update' ])
+            ->getMock() ;
+
+        $mock->method( 'get' )->willReturn( $getResult ) ;
+        $mock->method( 'update' )->willReturnCallback( function( array $args ) use ( &$captured )
+        {
+            $captured = $args ;
+            return null ;
+        } ) ;
+
+        return $mock ;
+    }
+
+    public function testRecordSuccessfulLoginReturnsEarlyWithoutUsersModel() :void
+    {
+        $fixture = $this->createFixture() ;
+
+        // No users model → no-op, must not throw.
+        $fixture->recordSuccessfulLogin( '42' ) ;
+
+        $this->assertNull( $fixture->usersModel ) ;
+    }
+
+    public function testRecordSuccessfulLoginReturnsEarlyWhenUserNotFound() :void
+    {
+        $captured = [] ;
+        $users    = $this->createUsersGetUpdateMock( null , $captured ) ;
+        $users->expects( $this->never() )->method( 'update' ) ;
+
+        $fixture = $this->createFixture( null , $users ) ;
+
+        $fixture->recordSuccessfulLogin( 'missing' ) ;
+
+        $this->assertSame( [] , $captured ) ;
+    }
+
+    public function testRecordSuccessfulLoginBumpsCountersOnSubsequentLogin() :void
+    {
+        $user              = new stdClass() ;
+        $user->activated   = true ;
+        $user->loginsCount = 5 ;
+
+        $captured = [] ;
+        $users    = $this->createUsersGetUpdateMock( $user , $captured ) ;
+
+        $fixture = $this->createFixture( null , $users ) ;
+
+        $fixture->recordSuccessfulLogin( '42' ) ;
+
+        $doc = $captured[ 'doc' ] ?? [] ;
+        $this->assertSame( 6 , $doc[ User::LOGINS_COUNT ] ?? null , 'counter must increment' ) ;
+        $this->assertArrayHasKey( User::LAST_LOGIN , $doc ) ;
+
+        // An already-activated user must NOT be re-activated.
+        $this->assertArrayNotHasKey( User::ACTIVATED         , $doc ) ;
+        $this->assertArrayNotHasKey( User::FIRST_LOGIN_AT    , $doc ) ;
+        $this->assertArrayNotHasKey( User::INVITATION_STATUS , $doc ) ;
+    }
+
+    public function testRecordSuccessfulLoginActivatesOnFirstLogin() :void
+    {
+        // activated absent → first login. No invitations model → the
+        // invitation bookkeeping is skipped (covered separately).
+        $user = new stdClass() ;
+
+        $captured = [] ;
+        $users    = $this->createUsersGetUpdateMock( $user , $captured ) ;
+
+        $fixture = $this->createFixture( null , $users ) ;
+
+        $fixture->recordSuccessfulLogin( '42' ) ;
+
+        $doc = $captured[ 'doc' ] ?? [] ;
+        $this->assertSame( 1 , $doc[ User::LOGINS_COUNT ] ?? null , 'first login starts the counter at 1' ) ;
+        $this->assertTrue( $doc[ User::ACTIVATED ] ?? null ) ;
+        $this->assertArrayHasKey( User::FIRST_LOGIN_AT , $doc ) ;
+        $this->assertSame( InvitationStatus::ACCEPTED , $doc[ User::INVITATION_STATUS ] ?? null ) ;
+    }
+
+    public function testRecordSuccessfulLoginSwallowsUpdateFailure() :void
+    {
+        $user            = new stdClass() ;
+        $user->activated = true ;
+
+        $users = $this->getMockBuilder( Documents::class )
+            ->disableOriginalConstructor()
+            ->onlyMethods([ 'get' , 'update' ])
+            ->getMock() ;
+        $users->method( 'get' )->willReturn( $user ) ;
+        $users->method( 'update' )->willThrowException( new \RuntimeException( 'write conflict' ) ) ;
+
+        $fixture = $this->createFixture( null , $users ) ;
+
+        // A race / write failure must not propagate.
+        $fixture->recordSuccessfulLogin( '42' ) ;
+
+        $this->expectNotToPerformAssertions() ;
+    }
+
+    // =========================================================================
+    // markInvitationAccepted (reached via first-login recordSuccessfulLogin)
+    // =========================================================================
+
+    public function testFirstLoginMarksPendingInvitationAccepted() :void
+    {
+        $user = new stdClass() ; // activated absent → first login
+
+        $userCaptured = [] ;
+        $users        = $this->createUsersGetUpdateMock( $user , $userCaptured ) ;
+
+        $invitation       = new stdClass() ;
+        $invitation->_key = 'inv-1' ;
+
+        $invCaptured = [] ;
+        $invitations = $this->getMockBuilder( Documents::class )
+            ->disableOriginalConstructor()
+            ->onlyMethods([ 'list' , 'update' ])
+            ->getMock() ;
+        $invitations->expects( $this->once() )->method( 'list' )->with( $this->callback
+        (
+            fn( array $args ) :bool => ( $args[ 'binds' ][ 'invitationUserKey' ] ?? null ) === '42'
+        ))->willReturn( [ $invitation ] ) ;
+        $invitations->method( 'update' )->willReturnCallback( function( array $args ) use ( &$invCaptured )
+        {
+            $invCaptured = $args ;
+            return null ;
+        } ) ;
+
+        $fixture = $this->createFixture( null , $users ) ;
+        $fixture->invitationsModel = $invitations ;
+
+        $fixture->recordSuccessfulLogin( '42' ) ;
+
+        $this->assertSame( 'inv-1' , $invCaptured[ 'value' ] ?? null ) ;
+        $this->assertSame( Invitation::ACTION_STATUS_ACCEPTED , $invCaptured[ 'doc' ][ Schema::ACTION_STATUS ] ?? null ) ;
+    }
+
+    public function testFirstLoginWithNoPendingInvitationDoesNotUpdate() :void
+    {
+        $user = new stdClass() ;
+
+        $userCaptured = [] ;
+        $users        = $this->createUsersGetUpdateMock( $user , $userCaptured ) ;
+
+        $invitations = $this->getMockBuilder( Documents::class )
+            ->disableOriginalConstructor()
+            ->onlyMethods([ 'list' , 'update' ])
+            ->getMock() ;
+        $invitations->method( 'list' )->willReturn( [] ) ;
+        // No pending invitation → update must never be called (this mock
+        // expectation is the assertion of the test).
+        $invitations->expects( $this->never() )->method( 'update' ) ;
+
+        $fixture = $this->createFixture( null , $users ) ;
+        $fixture->invitationsModel = $invitations ;
+
+        $fixture->recordSuccessfulLogin( '42' ) ;
+    }
+
+    public function testFirstLoginInvitationLookupFailureIsSwallowed() :void
+    {
+        $user = new stdClass() ;
+
+        $userCaptured = [] ;
+        $users        = $this->createUsersGetUpdateMock( $user , $userCaptured ) ;
+
+        $invitations = $this->getMockBuilder( Documents::class )
+            ->disableOriginalConstructor()
+            ->onlyMethods([ 'list' , 'update' ])
+            ->getMock() ;
+        $invitations->method( 'list' )->willThrowException( new \RuntimeException( 'arango down' ) ) ;
+
+        $fixture = $this->createFixture( null , $users ) ;
+        $fixture->invitationsModel = $invitations ;
+
+        // Invitation bookkeeping must never break the login flow.
+        $fixture->recordSuccessfulLogin( '42' ) ;
+
+        $this->expectNotToPerformAssertions() ;
     }
 }
