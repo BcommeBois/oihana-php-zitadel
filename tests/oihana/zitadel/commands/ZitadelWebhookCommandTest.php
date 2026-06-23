@@ -249,6 +249,54 @@ TOML ;
         $this->assertStringContainsString( 'secret = "sk_manual"' , $output ) ;
     }
 
+    public function testWriteSecretWarnsWhenTargetFileIsUnreadable() :void
+    {
+        $path = $this->tempConfigPath() ;
+        file_put_contents( $path , "secret = \"x\"\n" ) ;
+        chmod( $path , 0000 ) ; // owner loses read → file_get_contents() fails
+
+        $output = $this->invokeWriteSecretCapturing( $path , 'password_changed' , 'sk' ) ;
+
+        $this->assertStringContainsString( 'Could not read' , $output ) ;
+
+        chmod( $path , 0644 ) ;
+        @unlink( $path ) ;
+    }
+
+    public function testWriteSecretWarnsWhenBackupCannotBeWritten() :void
+    {
+        $path = $this->tempConfigPath() ;
+        file_put_contents( $path , "secret = \"x\"\n" ) ; // readable source
+
+        // A directory at <path>.bak makes file_put_contents() of the backup
+        // fail deterministically (even as root: cannot open a dir as a file).
+        $backup = $path . '.bak' ;
+        mkdir( $backup ) ;
+
+        $output = $this->invokeWriteSecretCapturing( $path , 'password_changed' , 'sk' ) ;
+
+        $this->assertStringContainsString( 'Could not write backup' , $output ) ;
+
+        rmdir( $backup ) ;
+        @unlink( $path ) ;
+    }
+
+    public function testWriteSecretWarnsWhenTargetCannotBeWritten() :void
+    {
+        // Point configFile at an existing directory: is_file() is false (so
+        // no read/backup happens) and file_put_contents() then fails because
+        // the path is a directory — root-proof.
+        $dir = sys_get_temp_dir() . '/zitadel_webhook_dir_' . uniqid() ;
+        mkdir( $dir ) ;
+
+        $output = $this->invokeWriteSecretCapturing( $dir , 'password_changed' , 'sk' ) ;
+
+        $this->assertStringContainsString( 'Could not write' , $output ) ;
+        $this->assertStringNotContainsString( 'Could not write backup' , $output ) ;
+
+        rmdir( $dir ) ;
+    }
+
     // =========================================================================
     // isPermissionDenied
     // =========================================================================
@@ -387,6 +435,37 @@ TOML ;
         $io = new SymfonyStyle( new ArrayInput( [] ) , new BufferedOutput() ) ;
 
         $class->getMethod( 'writeSecretOrWarn' )->invoke( $command , $io , $key , $secret , null ) ;
+    }
+
+    /**
+     * Like {@see invokeWriteSecret()} but returns the captured output and
+     * swallows the PHP I/O warnings emitted on the failure paths (unreadable
+     * target, backup write failure, target write failure) so they do not
+     * trip the suite's `failOnWarning`. The command surfaces those failures
+     * as `$io->warning(...)` lines, which is what the assertions check.
+     */
+    private function invokeWriteSecretCapturing( string $path , string $key , string $secret ) :string
+    {
+        $class   = new ReflectionClass( ZitadelWebhookCommand::class ) ;
+        $command = $class->newInstanceWithoutConstructor() ;
+
+        $class->getProperty( 'configFile' )->setValue( $command , $path ) ;
+
+        $buffer = new BufferedOutput() ;
+        $io     = new SymfonyStyle( new ArrayInput( [] ) , $buffer ) ;
+
+        set_error_handler( static fn() :bool => true ) ; // swallow the expected E_WARNING
+
+        try
+        {
+            $class->getMethod( 'writeSecretOrWarn' )->invoke( $command , $io , $key , $secret , null ) ;
+        }
+        finally
+        {
+            restore_error_handler() ;
+        }
+
+        return $buffer->fetch() ;
     }
 
     /**

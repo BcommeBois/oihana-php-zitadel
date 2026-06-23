@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Coverage tooling: composer `coverage` and `coverage:md` scripts plus `tools/clover-to-markdown.php` (PHPUnit Clover → Markdown summary under `build/coverage/`), matching the other `oihana/php-*` libraries. Current line coverage: 37.17% (442/1189) — most of the library is the Zitadel REST/gRPC client surface, exercised against a live Zitadel instance rather than by the unit suite.
+- Coverage tooling: composer `coverage` and `coverage:md` scripts plus `tools/clover-to-markdown.php` (PHPUnit Clover → Markdown summary under `build/coverage/`), matching the other `oihana/php-*` libraries. The unit suite now reaches **100% line, method and class coverage** (1190/1190 lines) — see the per-lot `### Tests` entries below for how the Zitadel client surface, session plumbing and Console command were brought under test without a live Zitadel instance.
 - Continuous integration: GitHub Actions `ci.yml` (composer validate + PHPUnit on PHP 8.4) and `docs.yml` (phpDocumentor build + GitHub Pages deploy) workflows.
 
 ### Changed
@@ -78,6 +78,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at 100%; overall line coverage rises 67.73% → 74.12%. No production code
   changed — every uncovered line was a guard or best-effort catch behaving
   as documented.
+- Coverage drive (lot 6 — `ZitadelWebhookCommand`, final): end-to-end
+  coverage of the Symfony Console command via `CommandTester` with the
+  Zitadel V2 API mocked at the `ZitadelClient` boundary — `execute()` guards
+  (missing client / catalog, unknown action, default `list`, the catch-all
+  error handler) and every action handler (`list` incl. `--mine` filter,
+  `delete` incl. interactive picker / confirm / cancel, `install`,
+  `rotate`, `show`, `uninstall` incl. `--purge-config`) with their success,
+  permission-denied (403 + remediation hint), descriptor-missing,
+  context-missing and listing/creation-failure branches, plus the
+  `writeSecretOrWarn` file-I/O failure paths (unreadable target, backup
+  write failure, target write failure). The `commands/` directory reaches
+  100%; **overall coverage reaches 100% line / method / class
+  (1190/1190 lines)**. No production code changed — no bug surfaced.
 
 ## [0.1.0] - 2026-06-21
 
