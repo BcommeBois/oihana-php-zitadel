@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coverage tooling: composer `coverage` and `coverage:md` scripts plus `tools/clover-to-markdown.php` (PHPUnit Clover → Markdown summary under `build/coverage/`), matching the other `oihana/php-*` libraries. Current line coverage: 37.17% (442/1189) — most of the library is the Zitadel REST/gRPC client surface, exercised against a live Zitadel instance rather than by the unit suite.
 - Continuous integration: GitHub Actions `ci.yml` (composer validate + PHPUnit on PHP 8.4) and `docs.yml` (phpDocumentor build + GitHub Pages deploy) workflows.
 
+### Changed
+
+- `ZitadelClientTrait`: the internal Guzzle client is now built through a
+  single overridable `protected createHttpClient( array $config ): Client`
+  factory instead of two inline `new Client( … )` calls in `refreshToken()`
+  and `requestRaw()`. Pure testability seam — production behaviour is
+  unchanged (the factory just wraps `new Client( $config )`) and the public
+  API is untouched. It lets the token-refresh and request plumbing be unit
+  tested against a Guzzle `MockHandler` without a live Zitadel instance.
+
 ### Tests
 
 - Coverage drive (lot 1 — foundations, no HTTP): full unit coverage for the
@@ -46,6 +56,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The three traits sit at 100%; `traits/client` reaches 83.9% (only the
   base `ZitadelClientTrait` HTTP layer remains). Overall line coverage
   rises 50.71% → 61.14%. No production code changed.
+- Coverage drive (lot 4 — base HTTP layer): full unit coverage for the base
+  `ZitadelClientTrait` via the new `createHttpClient()` seam and a Guzzle
+  `MockHandler` — `resolveEndpoint()` (single/multiple/no/unmatched
+  placeholders), `getAccessToken()` + `refreshToken()` (fetch, caching,
+  missing `expires_in` default, missing `access_token`, transport failure +
+  logging), `requestRaw()` (JSON decode, empty body, Bearer + JSON wire
+  shape, timeout forwarding/default, NO_TOKEN / HTTP_ERROR / TRANSPORT_ERROR
+  mapping) and `request()` (body on success, null on failure). `traits/client`
+  reaches 100%; overall line coverage rises 61.14% → 67.73%.
 
 ## [0.1.0] - 2026-06-21
 

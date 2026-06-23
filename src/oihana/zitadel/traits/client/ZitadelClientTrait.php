@@ -111,7 +111,7 @@ trait ZitadelClientTrait
                 $this->serviceAccount[ Keyfile::KEY_ID ]
             ) ;
 
-            $client   = new Client([ GuzzleOption::TIMEOUT => self::DEFAULT_TIMEOUT_SECONDS ]) ;
+            $client   = $this->createHttpClient([ GuzzleOption::TIMEOUT => self::DEFAULT_TIMEOUT_SECONDS ]) ;
             $response = $client->post( $this->issuer . ZitadelEndpoint::TOKEN ,
             [
                 GuzzleOption::FORM_PARAMS =>
@@ -219,7 +219,7 @@ trait ZitadelClientTrait
 
         try
         {
-            $client = new Client([ GuzzleOption::BASE_URI => $this->issuer , GuzzleOption::TIMEOUT => $timeout ?? self::DEFAULT_TIMEOUT_SECONDS ]) ;
+            $client = $this->createHttpClient([ GuzzleOption::BASE_URI => $this->issuer , GuzzleOption::TIMEOUT => $timeout ?? self::DEFAULT_TIMEOUT_SECONDS ]) ;
 
             $options =
             [
@@ -270,5 +270,26 @@ trait ZitadelClientTrait
             $this->logger?->error( "ZitadelClient: $method $path failed (transport): {$e->getMessage()}" ) ;
             return ZitadelOutput::failure( ZitadelError::TRANSPORT_ERROR ) ;
         }
+    }
+
+    /**
+     * Creates the underlying Guzzle HTTP client used to reach Zitadel.
+     *
+     * Isolated in a single overridable factory so the transport layer can
+     * be substituted : production returns a real {@see Client}, while tests
+     * override this method to inject a Guzzle handler stack backed by a
+     * `MockHandler`. This is the seam that lets {@see refreshToken()} and
+     * {@see requestRaw()} be exercised end-to-end without a live Zitadel
+     * instance. Behaviour in production is unchanged — the method simply
+     * wraps `new Client( $config )`.
+     *
+     * @param array<string,mixed> $config Guzzle client configuration
+     *                                    (base URI, timeout, …).
+     *
+     * @return Client A configured Guzzle client.
+     */
+    protected function createHttpClient( array $config ) :Client
+    {
+        return new Client( $config ) ;
     }
 }
