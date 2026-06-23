@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- CI (`docs.yml`): bumped the GitHub Pages actions to their Node 24 releases
+  to clear the "Node.js 20 is deprecated" runner warnings —
+  `actions/configure-pages` v5 → v6, `actions/upload-pages-artifact` v3 → v5
+  (which now wraps `actions/upload-artifact` v7), and `actions/deploy-pages`
+  v4 → v5. No behaviour change.
 - Dev dependency: bumped `phpunit/phpunit` from `^12` to `^13` (13.2.1).
   The suite passes unchanged at 100% coverage; the only required change was
   dropping the now-deprecated `->expects( $this->any() )` invocation-count
