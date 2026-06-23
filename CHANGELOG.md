@@ -34,6 +34,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`createUserKey` / `grantUserOnProject` empty-success-body guards). The
   four traits sit at 100% line coverage; overall line coverage rises
   40.37% → 50.71%. No production code changed.
+- Coverage drive (lot 3 — client traits, group 2): full unit coverage for
+  `ZitadelClientRoleTrait` (project-scoped create/delete/update/grant/list,
+  default vs explicit group, immutable-key invariant, empty/failed list
+  guards), `ZitadelClientApplicationTrait` (`getProjectName` resolution +
+  memoization + null guards, `deleteApplication`, `searchApplications`
+  empty/non-array guards, `findApplicationByClientId` matching on
+  oidcConfig/apiConfig + active-state mapping) and
+  `ZitadelClientSessionTrait` (`getSession`, `getSessionRaw` + timeout
+  forwarding, `listUserSessions` query shape, `revokeSession` + timeout).
+  The three traits sit at 100%; `traits/client` reaches 83.9% (only the
+  base `ZitadelClientTrait` HTTP layer remains). Overall line coverage
+  rises 50.71% → 61.14%. No production code changed.
 
 ## [0.1.0] - 2026-06-21
 
