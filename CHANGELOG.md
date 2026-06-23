@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expectation from the mock builders in favour of the plain stub style
   (`->method( … )->willReturn*( … )`), which PHPUnit 13 will enforce in
   PHPUnit 14. No production code changed.
+- Test config (`phpunit.xml`): now fails the suite on deprecations
+  (`failOnDeprecation` + `failOnPhpunitDeprecation`), matching the existing
+  strict gates (`failOnRisky` / `failOnWarning` / `failOnSkipped` / …), and
+  bumped the schema reference from `12.0` to `13.0`. The suite stays green.
 - `ZitadelClientTrait`: the internal Guzzle client is now built through a
   single overridable `protected createHttpClient( array $config ): Client`
   factory instead of two inline `new Client( … )` calls in `refreshToken()`
