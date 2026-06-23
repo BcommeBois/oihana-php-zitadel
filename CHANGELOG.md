@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dev dependency: bumped `phpunit/phpunit` from `^12` to `^13` (13.2.1).
+  The suite passes unchanged at 100% coverage; the only required change was
+  dropping the now-deprecated `->expects( $this->any() )` invocation-count
+  expectation from the mock builders in favour of the plain stub style
+  (`->method( … )->willReturn*( … )`), which PHPUnit 13 will enforce in
+  PHPUnit 14. No production code changed.
 - `ZitadelClientTrait`: the internal Guzzle client is now built through a
   single overridable `protected createHttpClient( array $config ): Client`
   factory instead of two inline `new Client( … )` calls in `refreshToken()`

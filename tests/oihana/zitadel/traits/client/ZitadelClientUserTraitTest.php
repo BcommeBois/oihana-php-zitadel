@@ -46,7 +46,7 @@ class ZitadelClientUserTraitTest extends TestCase
             ->onlyMethods([ 'request' ])
             ->getMock() ;
 
-        $client->expects( $this->any() )
+        $client
             ->method( 'request' )
             ->willReturnCallback
             (
@@ -185,7 +185,7 @@ class ZitadelClientUserTraitTest extends TestCase
             ->onlyMethods([ 'requestRaw' ])
             ->getMock() ;
 
-        $client->expects( $this->any() )
+        $client
             ->method( 'requestRaw' )
             ->willReturnCallback
             (
@@ -335,7 +335,7 @@ class ZitadelClientUserTraitTest extends TestCase
             ->onlyMethods([ 'requestRaw' ])
             ->getMock() ;
 
-        $client->expects( $this->any() )
+        $client
             ->method( 'requestRaw' )
             ->willReturnCallback
             (
@@ -629,7 +629,7 @@ class ZitadelClientUserTraitTest extends TestCase
             ->onlyMethods([ 'request' ])
             ->getMock() ;
 
-        $client->expects( $this->any() )
+        $client
             ->method( 'request' )
             ->willReturnCallback
             (

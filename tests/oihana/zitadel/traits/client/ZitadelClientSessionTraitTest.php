@@ -39,7 +39,7 @@ class ZitadelClientSessionTraitTest extends TestCase
             ->onlyMethods([ 'request' ])
             ->getMock() ;
 
-        $client->expects( $this->any() )
+        $client
             ->method( 'request' )
             ->willReturnCallback
             (
@@ -66,7 +66,7 @@ class ZitadelClientSessionTraitTest extends TestCase
             ->onlyMethods([ 'requestRaw' ])
             ->getMock() ;
 
-        $client->expects( $this->any() )
+        $client
             ->method( 'requestRaw' )
             ->willReturnCallback
             (

@@ -81,7 +81,7 @@ class SessionCreatorTraitTest extends TestCase
             ->onlyMethods([ 'get' ])
             ->getMock() ;
 
-        $mock->expects( $this->any() )->method( 'get' )->willReturn( $getResult ) ;
+        $mock->method( 'get' )->willReturn( $getResult ) ;
 
         return $mock ;
     }
@@ -343,7 +343,7 @@ class SessionCreatorTraitTest extends TestCase
             ->onlyMethods([ 'get' ])
             ->getMock() ;
 
-        $mock->expects( $this->any() )->method( 'get' )->willReturn( $getResult ) ;
+        $mock->method( 'get' )->willReturn( $getResult ) ;
 
         return $mock ;
     }

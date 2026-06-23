@@ -37,7 +37,7 @@ class ZitadelClientApplicationTraitTest extends TestCase
             ->onlyMethods([ 'request' ])
             ->getMock() ;
 
-        $client->expects( $this->any() )
+        $client
             ->method( 'request' )
             ->willReturnCallback
             (
