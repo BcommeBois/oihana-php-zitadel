@@ -287,7 +287,24 @@ class ZitadelClientUserTraitTest extends TestCase
 
         // Top-level username — V2 does NOT nest username under `human`.
         $this->assertSame( 'admin@example.com' , $captured[ 'body' ][ Zitadel::USERNAME ] ) ;
-        $this->assertArrayNotHasKey( Zitadel::HUMAN , $captured[ 'body' ] ) ;
+    }
+
+    public function testSetUsernameSendsTheHumanTypeDiscriminator() :void
+    {
+        $captured = [] ;
+        $client   = $this->createRequestRawCapturingClient( $captured ) ;
+
+        $client->setUsername( 'uid' , 'new@example.com' ) ;
+
+        // The UpdateUser proto resolves the user type from a
+        // `oneof type` (`human` | `machine`) discriminator in the
+        // body : without it Zitadel rejects the call with HTTP 501
+        // `user type is not implemented` and the login key is never
+        // updated. The `human` object must be present AND empty so
+        // the request selects the human branch without overwriting
+        // any profile / email / phone field.
+        $this->assertArrayHasKey( Zitadel::HUMAN , $captured[ 'body' ] ) ;
+        $this->assertEquals( (object) [] , $captured[ 'body' ][ Zitadel::HUMAN ] ) ;
     }
 
     public function testVerifyEmailHitsDedicatedV2EmailVerifyEndpoint() :void

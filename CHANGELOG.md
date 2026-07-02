@@ -37,6 +37,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   API is untouched. It lets the token-refresh and request plumbing be unit
   tested against a Guzzle `MockHandler` without a live Zitadel instance.
 
+### Fixed
+
+- `ZitadelClientUserTrait::setUsername()`: the V2 UpdateUser endpoint
+  (`PATCH /v2/users/{userId}`) resolves the user type from a `oneof type`
+  (`human` | `machine`) discriminator carried by the request body. The
+  method used to send only the top-level `username`, which left the oneof
+  unset — Zitadel rejected every call with HTTP 501
+  `user type is not implemented` and the login key was never updated
+  (silently for callers that ignored the structured result). The body now
+  ships an empty `human` object next to the `username`, selecting the human
+  branch without touching any profile / email / phone field. Verified
+  against a live Zitadel instance: 501 before the fix, 200 + effective
+  rename after. The unit test that asserted the *absence* of the `human`
+  key (and thereby locked in the broken payload) is inverted accordingly.
+
 ### Tests
 
 - Coverage drive (lot 1 — foundations, no HTTP): full unit coverage for the

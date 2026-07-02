@@ -3,6 +3,7 @@
 namespace oihana\zitadel\traits\client;
 
 use oihana\enums\http\HttpMethod;
+use oihana\zitadel\enums\ZitadelEndpointPlaceholder;
 use oihana\zitadel\enums\ZitadelQueryMethod;
 use oihana\zitadel\schema\constants\Zitadel;
 
@@ -94,7 +95,7 @@ trait ZitadelClientUserTrait
         return $this->request
         (
             HttpMethod::DELETE ,
-            $this->resolveEndpoint( ZitadelEndpoint::USER_BY_ID , [ 'userId' => $userId ] )
+            $this->resolveEndpoint( ZitadelEndpoint::USER_BY_ID , [ ZitadelEndpointPlaceholder::USER_ID => $userId ] )
         ) ;
     }
 
@@ -135,7 +136,7 @@ trait ZitadelClientUserTrait
         return $this->request
         (
             HttpMethod::GET ,
-            $this->resolveEndpoint( ZitadelEndpoint::USER_BY_ID , [ 'userId' => $userId ] )
+            $this->resolveEndpoint( ZitadelEndpoint::USER_BY_ID , [ ZitadelEndpointPlaceholder::USER_ID => $userId ] )
         ) ;
     }
 
@@ -200,7 +201,7 @@ trait ZitadelClientUserTrait
         return $this->requestRaw
         (
             HttpMethod::POST ,
-            $this->resolveEndpoint( ZitadelEndpoint::USER_LOCK_V2 , [ 'userId' => $userId ] )
+            $this->resolveEndpoint( ZitadelEndpoint::USER_LOCK_V2 , [ ZitadelEndpointPlaceholder::USER_ID => $userId ] )
         ) ;
     }
 
@@ -283,7 +284,7 @@ trait ZitadelClientUserTrait
         return $this->requestRaw
         (
             HttpMethod::POST ,
-            $this->resolveEndpoint( ZitadelEndpoint::USER_EMAIL_V2 , [ 'userId' => $userId ] ) ,
+            $this->resolveEndpoint( ZitadelEndpoint::USER_EMAIL_V2 , [ ZitadelEndpointPlaceholder::USER_ID => $userId ] ) ,
             $payload
         ) ;
     }
@@ -292,6 +293,16 @@ trait ZitadelClientUserTrait
      * Updates the human user's `username` (login key) through the V2
      * UpdateUser endpoint. The `username` field is top-level on V2 (not
      * nested under `human`) — same shape as on {@see createUser()}.
+     *
+     * The body also carries an **empty `human` object** : the proto
+     * `UpdateUserRequest` exposes a `oneof type` (`human` | `machine`)
+     * discriminator that Zitadel resolves from the request body, and a
+     * payload with only the top-level `username` leaves the oneof unset —
+     * the call is then rejected with HTTP 501 `user type is not
+     * implemented` and the login key is never updated. The empty object
+     * selects the human branch without touching any profile / email /
+     * phone field. This makes the method human-only by construction ;
+     * renaming a machine user is out of scope.
      *
      * Called by the email-change controller right after a verification
      * code has been confirmed, to align the login key with the new
@@ -309,9 +320,10 @@ trait ZitadelClientUserTrait
         return $this->requestRaw
         (
             HttpMethod::PATCH ,
-            $this->resolveEndpoint( ZitadelEndpoint::USER_BY_ID_V2 , [ 'userId' => $userId ] ) ,
+            $this->resolveEndpoint( ZitadelEndpoint::USER_BY_ID_V2 , [ ZitadelEndpointPlaceholder::USER_ID => $userId ] ) ,
             [
                 Zitadel::USERNAME => strtolower( $username ) ,
+                Zitadel::HUMAN    => (object) [] ,
             ]
         ) ;
     }
@@ -336,7 +348,7 @@ trait ZitadelClientUserTrait
         return $this->requestRaw
         (
             HttpMethod::POST ,
-            $this->resolveEndpoint( ZitadelEndpoint::USER_UNLOCK_V2 , [ 'userId' => $userId ] )
+            $this->resolveEndpoint( ZitadelEndpoint::USER_UNLOCK_V2 , [ ZitadelEndpointPlaceholder::USER_ID => $userId ] )
         ) ;
     }
 
@@ -378,7 +390,7 @@ trait ZitadelClientUserTrait
         return $this->requestRaw
         (
             HttpMethod::PATCH ,
-            $this->resolveEndpoint( ZitadelEndpoint::USER_BY_ID_V2 , [ 'userId' => $userId ] ) ,
+            $this->resolveEndpoint( ZitadelEndpoint::USER_BY_ID_V2 , [ ZitadelEndpointPlaceholder::USER_ID => $userId ] ) ,
             [
                 Zitadel::HUMAN =>
                     [
@@ -420,7 +432,7 @@ trait ZitadelClientUserTrait
         return $this->requestRaw
         (
             HttpMethod::POST ,
-            $this->resolveEndpoint( ZitadelEndpoint::USER_EMAIL_VERIFY_V2 , [ 'userId' => $userId ] ) ,
+            $this->resolveEndpoint( ZitadelEndpoint::USER_EMAIL_VERIFY_V2 , [ ZitadelEndpointPlaceholder::USER_ID => $userId ] ) ,
             [
                 Zitadel::VERIFICATION_CODE => $code ,
             ]
