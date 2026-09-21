@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`failOnDeprecation` + `failOnPhpunitDeprecation`), matching the existing
   strict gates (`failOnRisky` / `failOnWarning` / `failOnSkipped` / …), and
   bumped the schema reference from `12.0` to `13.0`. The suite stays green.
+- Test config (`phpunit.xml`), PHPUnit 13.3: the schema moves to `13.3`,
+  `cacheResult` (deprecated, dropped in 14) becomes
+  `recordTestRunHistory="false"`, and `executionOrder` drops `defects`, which
+  cannot sort without a recorded history and was inert anyway. `composer test`
+  exited 1 on a fully green suite once 13.3 was installed. Aligns with
+  `oihana/php-core` and `oihana/php-middleware`; no test code changed.
 - `ZitadelClientTrait`: the internal Guzzle client is now built through a
   single overridable `protected createHttpClient( array $config ): Client`
   factory instead of two inline `new Client( … )` calls in `refreshToken()`
