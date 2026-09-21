@@ -26,7 +26,7 @@ composer require oihana/php-zitadel
 
 - **Talk to Zitadel over the Management + Auth APIs** through `ZitadelClient` — a Guzzle-based HTTP client composed of focused traits (`ZitadelClientApplicationTrait`, `ZitadelClientPasswordTrait`, `ZitadelClientRoleTrait`, `ZitadelClientServiceTrait`, `ZitadelClientSessionTrait`, `ZitadelClientTargetTrait`, `ZitadelClientUserTrait`), with typed enums for endpoints, scopes, grants, query methods, error ids and outcomes.
 - **Resolve OAuth clients to human-readable names** via `OAuthClientResolver` — in-process TTL cache + ArangoDB `oauth_clients` mirror + fallback to the Zitadel Management API for auto-seeding.
-- **Mirror Zitadel sessions in ArangoDB** via `SessionCreatorTrait` — upsert on `[identifier, clientId, userAgent, active]`, sid anchoring from the id-token claims, IP + User-Agent capture, first-login activation + pending invitation acceptance.
+- **Mirror Zitadel sessions in ArangoDB** via `SessionCreatorTrait` — upsert on `[identifier, clientId, userAgent, active]`, sid anchoring from the id-token claims, IP + User-Agent capture (the caller may pass an address already vetted against its trusted proxies), first-login activation + pending invitation acceptance.
 - **Build V2 Action webhook handlers** via `ZitadelWebhookDescriptor` + `ZitadelWebhookCatalog` — typed event keys, route declaration, secret rotation, validation.
 - **Plug into a CLI** through the included `ZitadelWebhookCommand` — declarative webhook synchronization between Zitadel and the application.
 

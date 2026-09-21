@@ -244,6 +244,67 @@ class SessionCreatorTraitTest extends TestCase
     }
 
     // =========================================================================
+    // Client address — vetted by the caller, or the request's own fallback
+    // =========================================================================
+
+    public function testCreateSessionStoresTheProvidedClientIpOnInsert() :void
+    {
+        $sessions = $this->createSessionsMock() ;
+        $sessions->expects( $this->once() )->method( 'list'   )->willReturn( [] ) ;
+        $sessions->expects( $this->once() )->method( 'insert' )->with( $this->callback
+        (
+            function( array $args ) :bool
+            {
+                return ( $args[ 'doc' ][ Session::IP ] ?? null ) === '198.51.100.7' ;
+            }
+        )) ;
+
+        $request = $this->createRequest()->withHeader( 'X-Forwarded-For' , '203.0.113.9' ) ;
+
+        $this->createFixture( $sessions )->createSession( $request , 'raw-token' , 'user-sub' , 'client-api' , null , '198.51.100.7' ) ;
+    }
+
+    public function testCreateSessionStoresTheProvidedClientIpOnRefresh() :void
+    {
+        $existing       = new stdClass() ;
+        $existing->_key = 's-existing' ;
+
+        $sessions = $this->createSessionsMock() ;
+        $sessions->expects( $this->once()  )->method( 'list'   )->willReturn( [ $existing ] ) ;
+        $sessions->expects( $this->never() )->method( 'insert' ) ;
+        $sessions->expects( $this->once()  )->method( 'update' )->with( $this->callback
+        (
+            function( array $args ) :bool
+            {
+                return ( $args[ 'doc' ][ Session::IP ] ?? null ) === '198.51.100.7' ;
+            }
+        )) ;
+
+        $request = $this->createRequest()->withHeader( 'X-Forwarded-For' , '203.0.113.9' ) ;
+
+        $this->createFixture( $sessions )->createSession( $request , 'raw-token' , 'user-sub' , 'client-api' , null , '198.51.100.7' ) ;
+    }
+
+    public function testCreateSessionFallsBackToTheRequestAddressWithoutClientIp() :void
+    {
+        $sessions = $this->createSessionsMock() ;
+        $sessions->expects( $this->once() )->method( 'list'   )->willReturn( [] ) ;
+        $sessions->expects( $this->once() )->method( 'insert' )->with( $this->callback
+        (
+            function( array $args ) :bool
+            {
+                return ( $args[ 'doc' ][ Session::IP ] ?? null ) === '192.0.2.10' ;
+            }
+        )) ;
+
+        $request = ( new ServerRequestFactory() )
+            ->createServerRequest( 'GET' , '/me' , [ 'REMOTE_ADDR' => '192.0.2.10' ] )
+            ->withHeader( 'User-Agent' , 'Mozilla/5.0 (Macintosh)' ) ;
+
+        $this->createFixture( $sessions )->createSession( $request , 'raw-token' , 'user-sub' , 'client-api' ) ;
+    }
+
+    // =========================================================================
     // Discriminator checks — filters passed to list()
     // =========================================================================
 

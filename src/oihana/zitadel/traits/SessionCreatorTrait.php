@@ -81,6 +81,14 @@ trait SessionCreatorTrait
      *                                         firebase/php-jwt or array from a manual decode).
      *                                         When present, the `sid` claim is persisted into
      *                                         `session.id`.
+     * @param string|null       $clientIp      Optional client address already vetted by the caller,
+     *                                         typically resolved once against a trusted-proxy list.
+     *                                         Stored on insert and on every refresh. When null, the
+     *                                         address falls back to `getClientIp( $request )` with no
+     *                                         trusted proxies, which believes forwarding headers as
+     *                                         sent (the first `X-Forwarded-For` entry is written by
+     *                                         the client) : pass it whenever the application runs
+     *                                         behind a reverse proxy.
      *
      * @return string|null The resolved ArangoDB user `_key`, or null on failure / unknown user.
      */
@@ -90,7 +98,8 @@ trait SessionCreatorTrait
         ?string            $accessToken            ,
         ?string            $identifier     = null  ,
         ?string            $clientId       = null  ,
-        object|array|null  $idTokenClaims  = null
+        object|array|null  $idTokenClaims  = null  ,
+        ?string            $clientIp       = null
     )
     :?string
     {
@@ -141,7 +150,7 @@ trait SessionCreatorTrait
             $now       = gmdate( Iso8601Format::DATE_TIME_ZULU ) ;
             $expiresAt = gmdate( Iso8601Format::DATE_TIME_ZULU  , time() + $this->sessionDuration ) ;
             $tokenHash = hash( HashAlgorithm::SHA256 , $accessToken ) ;
-            $ip        = getClientIp( $request ) ;
+            $ip        = $clientIp ?? getClientIp( $request ) ;
             $userAgent = $request?->getHeaderLine( HttpHeader::USER_AGENT ) ?: null ;
             $clientName = $this->oauthClientResolver?->resolve( $clientId ) ;
 

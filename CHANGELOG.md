@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Coverage tooling: composer `coverage` and `coverage:md` scripts plus `tools/clover-to-markdown.php` (PHPUnit Clover → Markdown summary under `build/coverage/`), matching the other `oihana/php-*` libraries. The unit suite now reaches **100% line, method and class coverage** (1190/1190 lines) — see the per-lot `### Tests` entries below for how the Zitadel client surface, session plumbing and Console command were brought under test without a live Zitadel instance.
 - Continuous integration: GitHub Actions `ci.yml` (composer validate + PHPUnit on PHP 8.4) and `docs.yml` (phpDocumentor build + GitHub Pages deploy) workflows.
+- `SessionCreatorTrait::createSession()`: new optional `?string $clientIp`
+  parameter — the client address already vetted by the caller, stored on
+  insert and on every refresh. When omitted, the address is still resolved
+  through `getClientIp( $request )` as before.
 
 ### Changed
 
@@ -57,6 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against a live Zitadel instance: 501 before the fix, 200 + effective
   rename after. The unit test that asserted the *absence* of the `human`
   key (and thereby locked in the broken payload) is inverted accordingly.
+
+### Security
+
+- `SessionCreatorTrait::createSession()` resolved the session address itself
+  through `getClientIp()` with no trusted-proxy list, which believes
+  forwarding headers as sent : it kept the first `X-Forwarded-For` entry,
+  written by the client. A client calling the API directly could therefore
+  record the address of its choice in its own session. An application that
+  resolves the address once against its trusted proxies can now pass it
+  through `$clientIp`, and the session records the same address as the rest
+  of the application. Callers that do not pass it keep today's behaviour.
 
 ### Tests
 
@@ -127,6 +142,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   write failure, target write failure). The `commands/` directory reaches
   100%; **overall coverage reaches 100% line / method / class
   (1190/1190 lines)**. No production code changed — no bug surfaced.
+- Session client address: three tests — the address passed through
+  `$clientIp` wins over a forged `X-Forwarded-For` on insert and on refresh,
+  and the request's own address is still used when none is passed. The first
+  two fail against the previous code.
 
 ## [0.1.0] - 2026-06-21
 
